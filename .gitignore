@@ -1,0 +1,31 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and Editor configurations
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS-specific files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# App-specific local user data (Crucial for API key safety!)
+notes.json
+
+# User inserted images (preserve the folder but ignore files inside)
+images/*
+!images/.gitkeep
