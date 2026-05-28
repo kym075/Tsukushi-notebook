@@ -82,6 +82,8 @@ class NotebookApp(ctk.CTk):
         self.current_note_id = None         # 現在編集中のノートID
         self.keep_alive_images = []         # Tkinter画像GC対策
         self.auto_save_timer = None         # 自動保存用タイマーID
+        self.pending_format_start_index = None
+        self.pending_format_after_id = None
 
         # リッチテキストタイピング用のアクティブな装飾設定
         self.active_typing_color = "default"
@@ -267,19 +269,45 @@ class NotebookApp(ctk.CTk):
 
     def on_key_pressed(self, event):
         if event.char and (event.char.isprintable() or event.char in ("\r", "\n", "\t")):
-            self.after(1, self.apply_formatting_to_last_typed_char)
+            try:
+                text_widget = self.editor._textbox
+                if text_widget.tag_ranges("sel"):
+                    start_idx = text_widget.index("sel.first")
+                else:
+                    start_idx = text_widget.index("insert")
 
-    def apply_formatting_to_last_typed_char(self):
+                if self.pending_format_start_index is None:
+                    self.pending_format_start_index = start_idx
+
+                if self.pending_format_after_id is None:
+                    self.pending_format_after_id = self.after_idle(self.apply_formatting_to_pending_insert)
+            except tk.TclError:
+                pass
+
+    def apply_formatting_to_pending_insert(self):
         try:
+            self.pending_format_after_id = None
+            if self.pending_format_start_index is None:
+                return
+
             text_widget = self.editor._textbox
-            insert_idx = text_widget.index("insert")
-            
-            start_idx = f"{insert_idx} - 1 char"
-            end_idx = insert_idx
-            
+            start_idx = self.pending_format_start_index
+            end_idx = text_widget.index("insert")
+            self.pending_format_start_index = None
+
+            if text_widget.compare(start_idx, "==", end_idx):
+                return
+            if text_widget.compare(start_idx, ">", end_idx):
+                start_idx, end_idx = end_idx, start_idx
+
             color_tag = f"color_{self.active_typing_color}"
             size_tag = f"size_{self.active_typing_size}"
-            
+
+            for ck in FONT_COLORS.keys():
+                text_widget.tag_remove(f"color_{ck}", start_idx, end_idx)
+            for size in range(12, 33, 2):
+                text_widget.tag_remove(f"size_{size}", start_idx, end_idx)
+
             text_widget.tag_add(color_tag, start_idx, end_idx)
             text_widget.tag_add(size_tag, start_idx, end_idx)
         except Exception as e:
