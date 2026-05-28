@@ -391,6 +391,13 @@ class NotebookApp(ctk.CTk):
                         card_text_color = "#888888" if mode == "dark" else "#555555"
                         
                 child.configure(fg_color=bg_color, text_color=card_text_color, hover_color=("#c5c5c5", "#4a4a4a"))
+                self.left_align_button_text(child)
+
+    def left_align_button_text(self, button):
+        """CTkButtonの複数行テキストを左揃えにする"""
+        text_label = getattr(button, "_text_label", None)
+        if text_label is not None:
+            text_label.configure(anchor="w", justify="left")
 
     # ==========================================
     # 5. リッチテキストJSONシリアライザ (保存・復元)
@@ -607,6 +614,7 @@ class NotebookApp(ctk.CTk):
                 height=50,
                 command=lambda nid=note_id: self.select_note(nid)
             )
+            self.left_align_button_text(note_card)
             note_card.pack(fill="x", pady=3)
 
     def select_category(self, category_name):
