@@ -221,7 +221,8 @@ class NotebookApp(ctk.CTk):
             font=ctk.CTkFont(size=18, weight="bold"), 
             border_width=1,
             fg_color=("#ffffff", "#2b2b2b"),
-            border_color=("#dcdde1", "#3f3f3f")
+            border_color=("#dcdde1", "#3f3f3f"),
+            justify="left"
         )
         self.title_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.title_entry.bind("<KeyRelease>", self.trigger_auto_save)
@@ -644,6 +645,7 @@ class NotebookApp(ctk.CTk):
         # タイトルのセット
         self.title_entry.delete(0, "end")
         self.title_entry.insert(0, note_data["title"])
+        self.title_entry.xview_moveto(0)
 
         # 初期アクティブ装飾サイズの設定
         content_data = note_data.get("content", [])
