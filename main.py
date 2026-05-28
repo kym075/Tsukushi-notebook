@@ -50,6 +50,14 @@ FONT_COLORS = {
     }
 }
 
+DEFAULT_FONT_SIZE = 20
+FONT_SIZE_VALUES = range(12, 33, 2)
+EDITOR_FONT_FAMILY = "Yu Gothic UI"
+
+
+def app_font(**kwargs):
+    return ctk.CTkFont(family=EDITOR_FONT_FAMILY, **kwargs)
+
 
 def resource_path(relative_path):
     """PyInstallerで同梱したファイルとソース実行時のファイルを同じ書き方で参照する"""
@@ -87,7 +95,9 @@ class NotebookApp(ctk.CTk):
 
         # リッチテキストタイピング用のアクティブな装飾設定
         self.active_typing_color = "default"
-        self.active_typing_size = 16
+        self.active_typing_size = DEFAULT_FONT_SIZE
+        self.active_typing_bold = False
+        self.active_typing_underline = False
 
         # ウィンドウの基本設定
         self.title("つくしノート")
@@ -102,6 +112,7 @@ class NotebookApp(ctk.CTk):
             
         self.geometry("1100x700")
         self.minsize(900, 600)
+        self.after(0, self.maximize_window)
 
         # 初期表示モードの設定 (最初はダークモードで起動)
         ctk.set_appearance_mode("dark")
@@ -116,6 +127,7 @@ class NotebookApp(ctk.CTk):
         self.create_sidebar()
         self.create_notes_list()
         self.create_editor()
+        self.apply_app_fonts(self)
 
         # リッチテキスト装飾タグの初期生成
         self.configure_formatting_tags()
@@ -125,6 +137,12 @@ class NotebookApp(ctk.CTk):
         self.refresh_notes_list()
         self.load_first_note()
 
+    def maximize_window(self):
+        try:
+            self.state("zoomed")
+        except tk.TclError:
+            pass
+
     # ------------------------------------------
     # UI構築: 各種エリア
     # ------------------------------------------
@@ -133,10 +151,10 @@ class NotebookApp(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         self.sidebar.grid_rowconfigure(2, weight=1)
 
-        title_label = ctk.CTkLabel(self.sidebar, text="📚 ジャンル一覧", font=ctk.CTkFont(size=18, weight="bold"), text_color=("#1a1a1a", "#ffffff"))
+        title_label = ctk.CTkLabel(self.sidebar, text="📚 ジャンル一覧", font=app_font(size=18, weight="bold"), text_color=("#1a1a1a", "#ffffff"))
         title_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
 
-        add_cat_btn = ctk.CTkButton(self.sidebar, text="+ 新しい教科を追加", fg_color=("#2980b9", "#1f538d"), hover_color=("#1f6391", "#14375e"), command=self.add_category)
+        add_cat_btn = ctk.CTkButton(self.sidebar, text="+ 新しい教科を追加", font=app_font(size=13), fg_color=("#2980b9", "#1f538d"), hover_color=("#1f6391", "#14375e"), command=self.add_category)
         add_cat_btn.grid(row=1, column=0, padx=15, pady=10, sticky="ew")
 
         self.cat_scrollable = ctk.CTkScrollableFrame(self.sidebar, fg_color="transparent")
@@ -150,11 +168,12 @@ class NotebookApp(ctk.CTk):
             onvalue="dark", 
             offvalue="light", 
             text_color=("#1a1a1a", "#ffffff"),
+            font=app_font(size=13),
             command=self.toggle_app_theme
         )
         self.theme_switch.grid(row=3, column=0, padx=15, pady=(10, 5), sticky="ew")
         
-        settings_btn = ctk.CTkButton(self.sidebar, text="⚙ Gemini API 設定", fg_color=("#7f8c8d", "gray30"), hover_color=("#95a5a6", "gray40"), command=self.open_settings)
+        settings_btn = ctk.CTkButton(self.sidebar, text="⚙ Gemini API 設定", font=app_font(size=13), fg_color=("#7f8c8d", "gray30"), hover_color=("#95a5a6", "gray40"), command=self.open_settings)
         settings_btn.grid(row=4, column=0, padx=15, pady=(5, 20), sticky="ew")
 
     def create_notes_list(self):
@@ -162,10 +181,10 @@ class NotebookApp(ctk.CTk):
         self.list_frame.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
         self.list_frame.grid_rowconfigure(2, weight=1)
 
-        self.list_title = ctk.CTkLabel(self.list_frame, text="全て のノート", font=ctk.CTkFont(size=16, weight="bold"), text_color=("#1a1a1a", "#ffffff"))
+        self.list_title = ctk.CTkLabel(self.list_frame, text="全て のノート", font=app_font(size=16, weight="bold"), text_color=("#1a1a1a", "#ffffff"))
         self.list_title.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
 
-        new_note_btn = ctk.CTkButton(self.list_frame, text="📝 新規ノート", fg_color=("#27ae60", "#2b733b"), hover_color=("#219653", "#1c4b26"), command=self.add_new_note)
+        new_note_btn = ctk.CTkButton(self.list_frame, text="📝 新規ノート", font=app_font(size=13), fg_color=("#27ae60", "#2b733b"), hover_color=("#219653", "#1c4b26"), command=self.add_new_note)
         new_note_btn.grid(row=1, column=0, padx=15, pady=10, sticky="ew")
 
         self.notes_scrollable = ctk.CTkScrollableFrame(self.list_frame, fg_color="transparent")
@@ -180,19 +199,29 @@ class NotebookApp(ctk.CTk):
         toolbar = ctk.CTkFrame(self.editor_frame, height=50, fg_color="transparent")
         toolbar.grid(row=0, column=0, sticky="ew", padx=15, pady=(15, 5))
 
-        font_label = ctk.CTkLabel(toolbar, text="文字サイズ:", font=ctk.CTkFont(size=12), text_color=("#333333", "#e0e0e0"))
+        font_label = ctk.CTkLabel(toolbar, text="文字サイズ:", font=app_font(size=12), text_color=("#333333", "#e0e0e0"))
         font_label.pack(side="left", padx=5)
 
-        self.font_size_var = tk.IntVar(value=16)
+        self.font_size_var = tk.IntVar(value=DEFAULT_FONT_SIZE)
         self.font_size_slider = ctk.CTkSlider(toolbar, from_=12, to=32, number_of_steps=10, variable=self.font_size_var, width=120, command=self.on_font_slider_move)
         self.font_size_slider.pack(side="left", padx=5)
 
-        self.font_size_num_label = ctk.CTkLabel(toolbar, text="16", font=ctk.CTkFont(size=12, weight="bold"), text_color=("#333333", "#ffffff"))
+        self.font_size_num_label = ctk.CTkLabel(toolbar, text=str(DEFAULT_FONT_SIZE), font=app_font(size=12, weight="bold"), text_color=("#333333", "#ffffff"))
         self.font_size_num_label.pack(side="left", padx=2)
 
-        ctk.CTkLabel(toolbar, text=" | ", text_color="gray50").pack(side="left", padx=8)
+        ctk.CTkLabel(toolbar, text=" | ", font=app_font(size=12), text_color="gray50").pack(side="left", padx=8)
 
-        color_label = ctk.CTkLabel(toolbar, text="文字色:", font=ctk.CTkFont(size=12), text_color=("#333333", "#e0e0e0"))
+        self.bold_btn = ctk.CTkButton(toolbar, text="B", width=32, height=28, font=app_font(size=14, weight="bold"), command=self.toggle_typing_bold)
+        self.bold_btn.pack(side="left", padx=3)
+
+        self.underline_btn = ctk.CTkButton(toolbar, text="U", width=32, height=28, font=app_font(size=14, underline=True), command=self.toggle_typing_underline)
+        self.underline_btn.pack(side="left", padx=3)
+
+        self.update_style_buttons()
+
+        ctk.CTkLabel(toolbar, text=" | ", font=app_font(size=12), text_color="gray50").pack(side="left", padx=8)
+
+        color_label = ctk.CTkLabel(toolbar, text="文字色:", font=app_font(size=12), text_color=("#333333", "#e0e0e0"))
         color_label.pack(side="left", padx=5)
 
         color_configs = [
@@ -204,13 +233,13 @@ class NotebookApp(ctk.CTk):
             ("purple", "#a55eea", "ラベンダー")
         ]
         for key, hex_color, name in color_configs:
-            btn = ctk.CTkButton(toolbar, text="", width=20, height=20, corner_radius=10, fg_color=hex_color, hover_color=hex_color, border_width=1, border_color="white", command=lambda k=key: self.change_typing_color(k))
+            btn = ctk.CTkButton(toolbar, text="", width=20, height=20, corner_radius=10, font=app_font(size=12), fg_color=hex_color, hover_color=hex_color, border_width=1, border_color="white", command=lambda k=key: self.change_typing_color(k))
             btn.pack(side="left", padx=3)
 
-        self.ai_quiz_btn = ctk.CTkButton(toolbar, text="📝 AIクイズ", width=90, fg_color="#8a2be2", hover_color="#6a1b9a", font=ctk.CTkFont(weight="bold"), command=self.start_ai_quiz)
+        self.ai_quiz_btn = ctk.CTkButton(toolbar, text="📝 AIクイズ", width=90, fg_color="#8a2be2", hover_color="#6a1b9a", font=app_font(weight="bold"), command=self.start_ai_quiz)
         self.ai_quiz_btn.pack(side="right", padx=5)
 
-        self.insert_img_btn = ctk.CTkButton(toolbar, text="📷 画像挿入", width=90, fg_color="gray30", hover_color="gray40", command=self.insert_image)
+        self.insert_img_btn = ctk.CTkButton(toolbar, text="📷 画像挿入", width=90, font=app_font(size=13), fg_color="gray30", hover_color="gray40", command=self.insert_image)
         self.insert_img_btn.pack(side="right", padx=5)
 
         title_row = ctk.CTkFrame(self.editor_frame, fg_color="transparent")
@@ -220,7 +249,7 @@ class NotebookApp(ctk.CTk):
         self.title_entry = ctk.CTkEntry(
             title_row, 
             placeholder_text="無題のノート", 
-            font=ctk.CTkFont(size=18, weight="bold"), 
+            font=app_font(size=18, weight="bold"),
             border_width=1,
             fg_color=("#ffffff", "#2b2b2b"),
             border_color=("#dcdde1", "#3f3f3f"),
@@ -229,12 +258,12 @@ class NotebookApp(ctk.CTk):
         self.title_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.title_entry.bind("<KeyRelease>", self.trigger_auto_save)
 
-        delete_note_btn = ctk.CTkButton(title_row, text="🗑 削除", width=70, fg_color="#c0392b", hover_color="#962d22", command=self.delete_current_note)
+        delete_note_btn = ctk.CTkButton(title_row, text="🗑 削除", width=70, font=app_font(size=13), fg_color="#c0392b", hover_color="#962d22", command=self.delete_current_note)
         delete_note_btn.grid(row=0, column=1, sticky="e")
 
         self.editor = ctk.CTkTextbox(
-            self.editor_frame, 
-            font=ctk.CTkFont(size=16), 
+            self.editor_frame,
+            font=app_font(size=DEFAULT_FONT_SIZE),
             undo=True, 
             wrap="word", 
             border_width=1,
@@ -246,6 +275,23 @@ class NotebookApp(ctk.CTk):
         
         # キー入力でリアルタイム修飾
         self.editor.bind("<KeyPress>", self.on_key_pressed)
+
+    def apply_app_fonts(self, widget):
+        """フォント未指定のCustomTkinterウィジェットにもアプリ標準フォントを適用する"""
+        font_widgets = (ctk.CTkButton, ctk.CTkLabel, ctk.CTkSwitch, ctk.CTkEntry, ctk.CTkTextbox)
+        if isinstance(widget, font_widgets):
+            try:
+                current_font = widget.cget("font")
+                size = current_font.cget("size") if hasattr(current_font, "cget") else 13
+                weight = current_font.cget("weight") if hasattr(current_font, "cget") else "normal"
+                slant = current_font.cget("slant") if hasattr(current_font, "cget") else "roman"
+                underline = current_font.cget("underline") if hasattr(current_font, "cget") else False
+                widget.configure(font=app_font(size=size, weight=weight, slant=slant, underline=underline))
+            except Exception:
+                pass
+
+        for child in widget.winfo_children():
+            self.apply_app_fonts(child)
 
     # ==========================================
     # 4. 💫 リッチテキスト装飾エンジン
@@ -262,10 +308,91 @@ class NotebookApp(ctk.CTk):
             text_hex = color_config[mode]
             text_widget.tag_configure(tag_name, foreground=text_hex)
             
-        # 2. フォントサイズタグの適用
-        for size in range(12, 33, 2):
-            tag_name = f"size_{size}"
-            text_widget.tag_configure(tag_name, font=ctk.CTkFont(size=size))
+        # 2. フォントサイズ・太字・下線タグの適用
+        for size in FONT_SIZE_VALUES:
+            text_widget.tag_configure(self.font_tag_name(size, False), font=app_font(size=size))
+            text_widget.tag_configure(self.font_tag_name(size, True), font=app_font(size=size, weight="bold"))
+        text_widget.tag_configure("underline", underline=True)
+
+    def font_tag_name(self, size, bold):
+        return f"bold_size_{size}" if bold else f"size_{size}"
+
+    def get_text_style_at(self, index):
+        tags = self.editor._textbox.tag_names(index)
+        color = "default"
+        size = DEFAULT_FONT_SIZE
+        bold = False
+        underline = False
+
+        for tag in tags:
+            if tag.startswith("color_"):
+                color = tag.split("_", 1)[1]
+            elif tag.startswith("bold_size_"):
+                try:
+                    size = int(tag.split("_")[2])
+                    bold = True
+                except (IndexError, ValueError):
+                    pass
+            elif tag.startswith("size_"):
+                try:
+                    size = int(tag.split("_")[1])
+                    bold = False
+                except (IndexError, ValueError):
+                    pass
+            elif tag == "underline":
+                underline = True
+
+        return color, size, bold, underline
+
+    def apply_text_style_range(self, start, end, color=None, size=None, bold=None, underline=None):
+        text_widget = self.editor._textbox
+        if text_widget.compare(start, "==", end):
+            return
+        if text_widget.compare(start, ">", end):
+            start, end = end, start
+
+        count_result = text_widget.count(start, end, "chars")
+        char_count = count_result[0] if count_result else 0
+        if char_count <= 0:
+            return
+
+        segments = []
+        segment_start = start
+        previous_style = None
+
+        for i in range(char_count):
+            char_idx = text_widget.index(f"{start} + {i} chars")
+            current_style = self.get_text_style_at(char_idx)
+            next_style = (
+                color if color is not None else current_style[0],
+                size if size is not None else current_style[1],
+                bold if bold is not None else current_style[2],
+                underline if underline is not None else current_style[3],
+            )
+
+            if previous_style is None:
+                previous_style = next_style
+            elif next_style != previous_style:
+                segment_end = text_widget.index(f"{start} + {i} chars")
+                segments.append((segment_start, segment_end, previous_style))
+                segment_start = segment_end
+                previous_style = next_style
+
+        segments.append((segment_start, end, previous_style))
+
+        for color_key in FONT_COLORS.keys():
+            text_widget.tag_remove(f"color_{color_key}", start, end)
+        for font_size in FONT_SIZE_VALUES:
+            text_widget.tag_remove(self.font_tag_name(font_size, False), start, end)
+            text_widget.tag_remove(self.font_tag_name(font_size, True), start, end)
+        text_widget.tag_remove("underline", start, end)
+
+        for segment_start, segment_end, style in segments:
+            segment_color, segment_size, segment_bold, segment_underline = style
+            text_widget.tag_add(f"color_{segment_color}", segment_start, segment_end)
+            text_widget.tag_add(self.font_tag_name(segment_size, segment_bold), segment_start, segment_end)
+            if segment_underline:
+                text_widget.tag_add("underline", segment_start, segment_end)
 
     def on_key_pressed(self, event):
         if event.char and (event.char.isprintable() or event.char in ("\r", "\n", "\t")):
@@ -300,16 +427,14 @@ class NotebookApp(ctk.CTk):
             if text_widget.compare(start_idx, ">", end_idx):
                 start_idx, end_idx = end_idx, start_idx
 
-            color_tag = f"color_{self.active_typing_color}"
-            size_tag = f"size_{self.active_typing_size}"
-
-            for ck in FONT_COLORS.keys():
-                text_widget.tag_remove(f"color_{ck}", start_idx, end_idx)
-            for size in range(12, 33, 2):
-                text_widget.tag_remove(f"size_{size}", start_idx, end_idx)
-
-            text_widget.tag_add(color_tag, start_idx, end_idx)
-            text_widget.tag_add(size_tag, start_idx, end_idx)
+            self.apply_text_style_range(
+                start_idx,
+                end_idx,
+                color=self.active_typing_color,
+                size=self.active_typing_size,
+                bold=self.active_typing_bold,
+                underline=self.active_typing_underline,
+            )
         except Exception as e:
             print(f"タイピングフォーマット適用失敗: {e}")
 
@@ -321,11 +446,7 @@ class NotebookApp(ctk.CTk):
             if text_widget.tag_ranges("sel"):
                 start = text_widget.index("sel.first")
                 end = text_widget.index("sel.last")
-                
-                for ck in FONT_COLORS.keys():
-                    text_widget.tag_remove(f"color_{ck}", start, end)
-                    
-                text_widget.tag_add(f"color_{color_key}", start, end)
+                self.apply_text_style_range(start, end, color=color_key)
                 self.trigger_auto_save()
         except tk.TclError:
             pass
@@ -340,14 +461,44 @@ class NotebookApp(ctk.CTk):
             if text_widget.tag_ranges("sel"):
                 start = text_widget.index("sel.first")
                 end = text_widget.index("sel.last")
-                
-                for s in range(12, 33, 2):
-                    text_widget.tag_remove(f"size_{s}", start, end)
-                    
-                text_widget.tag_add(f"size_{size}", start, end)
+                self.apply_text_style_range(start, end, size=size)
                 self.trigger_auto_save()
         except tk.TclError:
             pass
+
+    def toggle_typing_bold(self):
+        self.active_typing_bold = not self.active_typing_bold
+        self.update_style_buttons()
+        try:
+            text_widget = self.editor._textbox
+            if text_widget.tag_ranges("sel"):
+                start = text_widget.index("sel.first")
+                end = text_widget.index("sel.last")
+                self.apply_text_style_range(start, end, bold=self.active_typing_bold)
+                self.trigger_auto_save()
+        except tk.TclError:
+            pass
+
+    def toggle_typing_underline(self):
+        self.active_typing_underline = not self.active_typing_underline
+        self.update_style_buttons()
+        try:
+            text_widget = self.editor._textbox
+            if text_widget.tag_ranges("sel"):
+                start = text_widget.index("sel.first")
+                end = text_widget.index("sel.last")
+                self.apply_text_style_range(start, end, underline=self.active_typing_underline)
+                self.trigger_auto_save()
+        except tk.TclError:
+            pass
+
+    def update_style_buttons(self):
+        active_color = ("#d8d8d8", "#3a3a3a")
+        inactive_color = ("#f1f1f1", "#2b2b2b")
+        if hasattr(self, "bold_btn"):
+            self.bold_btn.configure(fg_color=active_color if self.active_typing_bold else inactive_color, text_color=("#111111", "#ffffff"))
+        if hasattr(self, "underline_btn"):
+            self.underline_btn.configure(fg_color=active_color if self.active_typing_underline else inactive_color, text_color=("#111111", "#ffffff"))
 
     def toggle_app_theme(self):
         """ダーク／ホワイトテーマの滑らかな切り替え"""
@@ -441,7 +592,9 @@ class NotebookApp(ctk.CTk):
         spans = []
         current_text = ""
         current_color = "default"
-        current_size = 16
+        current_size = DEFAULT_FONT_SIZE
+        current_bold = False
+        current_underline = False
         
         total_chars = len(text_str)
         for i in range(total_chars):
@@ -450,37 +603,56 @@ class NotebookApp(ctk.CTk):
             
             tags = text_widget.tag_names(char_idx)
             color = "default"
-            size = 16
+            size = DEFAULT_FONT_SIZE
+            bold = False
+            underline = False
             for tag in tags:
                 if tag.startswith("color_"):
-                    color = tag.split("_")[1]
+                    color = tag.split("_", 1)[1]
+                elif tag.startswith("bold_size_"):
+                    try:
+                        size = int(tag.split("_")[2])
+                        bold = True
+                    except (IndexError, ValueError):
+                        pass
                 elif tag.startswith("size_"):
                     try:
                         size = int(tag.split("_")[1])
-                    except:
+                        bold = False
+                    except (IndexError, ValueError):
                         pass
+                elif tag == "underline":
+                    underline = True
             
             if i == 0:
                 current_text = char
                 current_color = color
                 current_size = size
-            elif color == current_color and size == current_size:
+                current_bold = bold
+                current_underline = underline
+            elif color == current_color and size == current_size and bold == current_bold and underline == current_underline:
                 current_text += char
             else:
                 spans.append({
                     "text": current_text,
                     "color": current_color,
-                    "size": current_size
+                    "size": current_size,
+                    "bold": current_bold,
+                    "underline": current_underline
                 })
                 current_text = char
                 current_color = color
                 current_size = size
+                current_bold = bold
+                current_underline = underline
                 
         if current_text:
             spans.append({
                 "text": current_text,
                 "color": current_color,
-                "size": current_size
+                "size": current_size,
+                "bold": current_bold,
+                "underline": current_underline
             })
             
         for span in spans:
@@ -505,7 +677,7 @@ class NotebookApp(ctk.CTk):
         self.keep_alive_images.clear()
         
         if isinstance(spans_or_string, str):
-            spans = [{"text": spans_or_string, "color": "default", "size": 16}]
+            spans = [{"text": spans_or_string, "color": "default", "size": DEFAULT_FONT_SIZE, "bold": False, "underline": False}]
         else:
             spans = spans_or_string
             
@@ -514,10 +686,13 @@ class NotebookApp(ctk.CTk):
         for span in spans:
             text = span.get("text", "")
             color = span.get("color", "default")
-            size = span.get("size", 16)
+            size = span.get("size", DEFAULT_FONT_SIZE)
+            bold = span.get("bold", False)
+            underline = span.get("underline", False)
             
             color_tag = f"color_{color}"
-            size_tag = f"size_{size}"
+            size_tag = self.font_tag_name(size, bold)
+            text_tags = (color_tag, size_tag, "underline") if underline else (color_tag, size_tag)
             
             lines = text.split("\n")
             for idx, line in enumerate(lines):
@@ -551,17 +726,17 @@ class NotebookApp(ctk.CTk):
                     text_widget.insert(tk.INSERT, line)
                     end_pos = text_widget.index(tk.INSERT)
                     
-                    text_widget.tag_add(color_tag, start_pos, end_pos)
-                    text_widget.tag_add(size_tag, start_pos, end_pos)
+                    for tag in text_tags:
+                        text_widget.tag_add(tag, start_pos, end_pos)
                     
                     if idx < len(lines) - 1:
                         start_nl = text_widget.index(tk.INSERT)
                         text_widget.insert(tk.INSERT, "\n")
                         end_nl = text_widget.index(tk.INSERT)
-                        text_widget.tag_add(color_tag, start_nl, end_nl)
-                        text_widget.tag_add(size_tag, start_nl, end_nl)
+                        for tag in text_tags:
+                            text_widget.tag_add(tag, start_nl, end_nl)
 
-        text_widget.tag_configure("image_tag_style", foreground="gray50", font=ctk.CTkFont(size=11, slant="italic"))
+        text_widget.tag_configure("image_tag_style", foreground="gray50", font=app_font(size=11, slant="italic"))
 
     # ==========================================
     # 6. リスト更新 ＆ ノート読込・保存
@@ -576,7 +751,7 @@ class NotebookApp(ctk.CTk):
         text_color = ("#1a1a1a", "#ffffff")
 
         all_btn_color = active_btn_color if self.selected_category == "全て" else "transparent"
-        all_btn = ctk.CTkButton(self.cat_scrollable, text="📂 全て表示", anchor="w", text_color=text_color, fg_color=all_btn_color, hover_color=("gray75", "gray30"), command=lambda: self.select_category("全て"))
+        all_btn = ctk.CTkButton(self.cat_scrollable, text="📂 全て表示", anchor="w", font=app_font(size=13), text_color=text_color, fg_color=all_btn_color, hover_color=("gray75", "gray30"), command=lambda: self.select_category("全て"))
         all_btn.pack(fill="x", pady=2)
 
         for cat in self.data["categories"]:
@@ -586,14 +761,16 @@ class NotebookApp(ctk.CTk):
             cat_frame.pack(fill="x", pady=1)
             cat_frame.grid_columnconfigure(0, weight=1)
 
-            cat_btn = ctk.CTkButton(cat_frame, text=f"• {cat}", anchor="w", text_color=text_color, fg_color=btn_color, hover_color=("gray75", "gray30"), command=lambda c=cat: self.select_category(c))
+            cat_btn = ctk.CTkButton(cat_frame, text=f"• {cat}", anchor="w", font=app_font(size=13), text_color=text_color, fg_color=btn_color, hover_color=("gray75", "gray30"), command=lambda c=cat: self.select_category(c))
             cat_btn.grid(row=0, column=0, sticky="ew")
 
-            rename_cat_btn = ctk.CTkButton(cat_frame, text="✎", width=24, height=20, fg_color="transparent", text_color="gray60", hover_color=("gray75", "gray30"), command=lambda c=cat: self.rename_category(c))
+            rename_cat_btn = ctk.CTkButton(cat_frame, text="✎", width=24, height=20, font=app_font(size=13), fg_color="transparent", text_color="gray60", hover_color=("gray75", "gray30"), command=lambda c=cat: self.rename_category(c))
             rename_cat_btn.grid(row=0, column=1, padx=(2, 0))
 
-            del_cat_btn = ctk.CTkButton(cat_frame, text="×", width=24, height=20, fg_color="transparent", text_color="gray60", hover_color="#c0392b", command=lambda c=cat: self.delete_category(c))
+            del_cat_btn = ctk.CTkButton(cat_frame, text="×", width=24, height=20, font=app_font(size=13), fg_color="transparent", text_color="gray60", hover_color="#c0392b", command=lambda c=cat: self.delete_category(c))
             del_cat_btn.grid(row=0, column=2, padx=(2, 0))
+
+        self.apply_app_fonts(self.cat_scrollable)
 
     def refresh_notes_list(self):
         for child in self.notes_scrollable.winfo_children():
@@ -609,8 +786,9 @@ class NotebookApp(ctk.CTk):
         filtered_notes.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
 
         if not filtered_notes:
-            no_note_label = ctk.CTkLabel(self.notes_scrollable, text="ノートがありません", text_color="gray60", font=ctk.CTkFont(size=12, slant="italic"))
+            no_note_label = ctk.CTkLabel(self.notes_scrollable, text="ノートがありません", text_color="gray60", font=app_font(size=12, slant="italic"))
             no_note_label.pack(pady=20)
+            self.apply_app_fonts(self.notes_scrollable)
             return
 
         mode = ctk.get_appearance_mode().lower()
@@ -638,7 +816,7 @@ class NotebookApp(ctk.CTk):
                 self.notes_scrollable, 
                 text=f"{title}\n🕒 {note.get('updated_at', '')[:16]}", 
                 anchor="w",
-                font=ctk.CTkFont(size=13),
+                font=app_font(size=13),
                 fg_color=bg_color,
                 text_color=card_text_color,
                 hover_color=("#c5c5c5", "#4a4a4a"),
@@ -647,6 +825,8 @@ class NotebookApp(ctk.CTk):
             )
             self.left_align_button_text(note_card)
             note_card.pack(fill="x", pady=3)
+
+        self.apply_app_fonts(self.notes_scrollable)
 
     def select_category(self, category_name):
         self.selected_category = category_name
@@ -686,18 +866,22 @@ class NotebookApp(ctk.CTk):
         self.title_entry.insert(0, note_data["title"])
         self.title_entry.xview_moveto(0)
 
-        # 初期アクティブ装飾サイズの設定
+        # 新規入力の標準装飾は、既存ノートの先頭スタイルに引っ張られないよう固定する
         content_data = note_data.get("content", [])
-        initial_size = 16
+        initial_size = DEFAULT_FONT_SIZE
         initial_color = "default"
+        initial_bold = False
+        initial_underline = False
         if isinstance(content_data, list) and len(content_data) > 0:
-            initial_size = content_data[0].get("size", 16)
             initial_color = content_data[0].get("color", "default")
             
         self.font_size_var.set(initial_size)
         self.font_size_num_label.configure(text=str(initial_size))
         self.active_typing_size = initial_size
         self.active_typing_color = initial_color
+        self.active_typing_bold = initial_bold
+        self.active_typing_underline = initial_underline
+        self.update_style_buttons()
 
         # タグの構成を再同期
         self.configure_formatting_tags()
@@ -744,7 +928,7 @@ class NotebookApp(ctk.CTk):
             save_data(self.data)
 
     def add_category(self):
-        dialog = ctk.CTkInputDialog(text="新しい教科（ジャンル）の名前を入力してください:", title="教科の追加")
+        dialog = ctk.CTkInputDialog(text="新しい教科（ジャンル）の名前を入力してください:", title="教科の追加", font=app_font(size=13))
         name = dialog.get_input()
         
         if name and name.strip():
@@ -762,7 +946,7 @@ class NotebookApp(ctk.CTk):
             self.load_first_note()
 
     def rename_category(self, category_name):
-        dialog = ctk.CTkInputDialog(text="新しい教科（ジャンル）の名前を入力してください:", title="教科名の変更")
+        dialog = ctk.CTkInputDialog(text="新しい教科（ジャンル）の名前を入力してください:", title="教科名の変更", font=app_font(size=13))
         if hasattr(dialog, "_entry"):
             dialog._entry.insert(0, category_name)
             dialog._entry.select_range(0, "end")
@@ -829,7 +1013,7 @@ class NotebookApp(ctk.CTk):
         new_note = {
             "id": new_id,
             "title": "",
-            "content": [{"text": "", "color": "default", "size": 16}], 
+            "content": [{"text": "", "color": "default", "size": DEFAULT_FONT_SIZE, "bold": False, "underline": False}],
             "category": initial_cat,
             "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
@@ -908,7 +1092,8 @@ class NotebookApp(ctk.CTk):
         # 💡 新機能: 問題数の選択ダイアログを表示
         dialog = ctk.CTkInputDialog(
             text="作成するクイズの問題数を入力してください (1〜10問):", 
-            title="問題数の選択"
+            title="問題数の選択",
+            font=app_font(size=13)
         )
         input_val = dialog.get_input()
         
@@ -934,7 +1119,8 @@ class NotebookApp(ctk.CTk):
         
         dialog = ctk.CTkInputDialog(
             text=f"Google Gemini API キーを入力してください。\n(現在設定: {masked_key if current_key else '未設定'})\n\n※キーはローカルの notes.json にのみ安全に保存されます。\n空のまま決定するとモックテストモードで動作します。", 
-            title="Gemini API設定"
+            title="Gemini API設定",
+            font=app_font(size=13)
         )
         new_key = dialog.get_input()
         

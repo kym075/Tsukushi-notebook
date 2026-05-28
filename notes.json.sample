@@ -13,12 +13,14 @@
         {
           "text": "■ 二次方程式の解の公式\nx = (-b ± √(b^2 - 4ac)) / 2a\n\n■ 三角関数の基本公式\nsin^2(x) + cos^2(x) = 1\n\n画像挿入ボタンから画像を挿入すると、テキストの中に画像を表示することもできます！\n\n",
           "color": "default",
-          "size": 16
+          "size": 20,
+          "bold": false,
+          "underline": false
         }
       ],
       "category": "数学",
       "color": "rose",
-      "font_size": 16,
+      "font_size": 20,
       "updated_at": "2026-05-27 17:54:02"
     },
     {
@@ -28,12 +30,14 @@
         {
           "text": "■ analyze\n【動】〜を分析する、分解する\nExample: We need to analyze the code for reverse engineering.\n\n■ lightweight\n【形】軽量の、軽快な\n",
           "color": "default",
-          "size": 16
+          "size": 20,
+          "bold": false,
+          "underline": false
         }
       ],
       "category": "英語",
       "color": "default",
-      "font_size": 14,
+      "font_size": 20,
       "updated_at": "2026-05-26 17:35:43"
     }
   ],
