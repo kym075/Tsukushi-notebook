@@ -3,6 +3,7 @@ import json
 import shutil
 import uuid
 import datetime
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -50,12 +51,22 @@ FONT_COLORS = {
 }
 
 
+def resource_path(relative_path):
+    """PyInstallerで同梱したファイルとソース実行時のファイルを同じ書き方で参照する"""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
 
 # ==========================================
 # 3. メインアプリケーション・クラス
 # ==========================================
 
 class NotebookApp(ctk.CTk):
+    def _windows_set_titlebar_color(self, color_mode):
+        """Windowsでテーマ切替時にウィンドウが一瞬消えるのを防ぐ。"""
+        return
+
     def __init__(self):
         super().__init__()
         
@@ -81,8 +92,9 @@ class NotebookApp(ctk.CTk):
         
         # 💡 新機能: アプリのオリジナルアイコン (app_icon.ico) を適用
         try:
-            if os.path.exists("app_icon.ico"):
-                self.iconbitmap("app_icon.ico")
+            icon_path = resource_path("app_icon.ico")
+            if os.path.exists(icon_path):
+                self.iconbitmap(icon_path)
         except Exception as e:
             print(f"アイコン適用に失敗しました: {e}")
             
@@ -209,7 +221,8 @@ class NotebookApp(ctk.CTk):
             font=ctk.CTkFont(size=18, weight="bold"), 
             border_width=1,
             fg_color=("#ffffff", "#2b2b2b"),
-            border_color=("#dcdde1", "#3f3f3f")
+            border_color=("#dcdde1", "#3f3f3f"),
+            justify="left"
         )
         self.title_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
         self.title_entry.bind("<KeyRelease>", self.trigger_auto_save)
@@ -632,6 +645,7 @@ class NotebookApp(ctk.CTk):
         # タイトルのセット
         self.title_entry.delete(0, "end")
         self.title_entry.insert(0, note_data["title"])
+        self.title_entry.xview_moveto(0)
 
         # 初期アクティブ装飾サイズの設定
         content_data = note_data.get("content", [])

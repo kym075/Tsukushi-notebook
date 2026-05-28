@@ -34,6 +34,22 @@ cp notes.json.sample notes.json
 python main.py
 ```
 
+## 配布版exe
+
+GitHub Releases から `TukushiNote.exe` をダウンロードして起動できます。
+
+exe版では、ノートデータはexeと同じフォルダの `notes.json` に保存され、挿入画像は同じフォルダの `images` に保存されます。`notes.json` にはGemini APIキーも保存されるため、GitHubには公開しないでください。
+
+## 開発者向け: exeのビルド
+
+Windowsで次を実行すると、`dist/TukushiNote.exe` が生成されます。
+
+```powershell
+.\build_exe.ps1
+```
+
+GitHubでは `v1.0.0` のような `v*` タグをpushすると、Windows用exeが自動ビルドされ、Releaseに添付されます。
+
 ## Gemini APIキーの設定
 
 アプリ左下の「⚙ Gemini API 設定」からAPIキーを入力すると、AIがノートを読んでクイズを生成します。キーなしでも動作します（オフラインのモックモード）。

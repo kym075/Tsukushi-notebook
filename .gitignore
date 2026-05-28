@@ -9,6 +9,11 @@ venv/
 ENV/
 env/
 
+# Build artifacts
+build/
+dist/
+*.exe
+
 # IDE and Editor configurations
 .idea/
 .vscode/
