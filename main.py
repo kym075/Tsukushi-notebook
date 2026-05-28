@@ -561,8 +561,11 @@ class NotebookApp(ctk.CTk):
             cat_btn = ctk.CTkButton(cat_frame, text=f"• {cat}", anchor="w", text_color=text_color, fg_color=btn_color, hover_color=("gray75", "gray30"), command=lambda c=cat: self.select_category(c))
             cat_btn.grid(row=0, column=0, sticky="ew")
 
-            del_cat_btn = ctk.CTkButton(cat_frame, text="×", width=20, height=20, fg_color="transparent", text_color="gray60", hover_color="#c0392b", command=lambda c=cat: self.delete_category(c))
-            del_cat_btn.grid(row=0, column=1, padx=2)
+            rename_cat_btn = ctk.CTkButton(cat_frame, text="✎", width=24, height=20, fg_color="transparent", text_color="gray60", hover_color=("gray75", "gray30"), command=lambda c=cat: self.rename_category(c))
+            rename_cat_btn.grid(row=0, column=1, padx=(2, 0))
+
+            del_cat_btn = ctk.CTkButton(cat_frame, text="×", width=24, height=20, fg_color="transparent", text_color="gray60", hover_color="#c0392b", command=lambda c=cat: self.delete_category(c))
+            del_cat_btn.grid(row=0, column=2, padx=(2, 0))
 
     def refresh_notes_list(self):
         for child in self.notes_scrollable.winfo_children():
@@ -729,6 +732,44 @@ class NotebookApp(ctk.CTk):
             self.refresh_category_list()
             self.refresh_notes_list()
             self.load_first_note()
+
+    def rename_category(self, category_name):
+        dialog = ctk.CTkInputDialog(text="新しい教科（ジャンル）の名前を入力してください:", title="教科名の変更")
+        if hasattr(dialog, "_entry"):
+            dialog._entry.insert(0, category_name)
+            dialog._entry.select_range(0, "end")
+
+        new_name = dialog.get_input()
+        if new_name is None:
+            return
+
+        self.apply_category_rename(category_name, new_name)
+
+    def apply_category_rename(self, old_name, new_name):
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+
+        if new_name in self.data["categories"]:
+            messagebox.showwarning("警告", "その教科は既に存在します。")
+            return
+
+        try:
+            category_index = self.data["categories"].index(old_name)
+        except ValueError:
+            return
+
+        self.data["categories"][category_index] = new_name
+        for note in self.data["notes"]:
+            if note.get("category") == old_name:
+                note["category"] = new_name
+
+        if self.selected_category == old_name:
+            self.selected_category = new_name
+
+        save_data(self.data)
+        self.refresh_category_list()
+        self.refresh_notes_list()
 
     def delete_category(self, category_name):
         if not messagebox.askyesno("ジャンルの削除", f"「{category_name}」を削除しますか？\n(このジャンル内のメモは削除されず『未分類』へ移動します)"):
