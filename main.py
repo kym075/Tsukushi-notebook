@@ -3,6 +3,7 @@ import json
 import shutil
 import uuid
 import datetime
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -50,12 +51,22 @@ FONT_COLORS = {
 }
 
 
+def resource_path(relative_path):
+    """PyInstallerで同梱したファイルとソース実行時のファイルを同じ書き方で参照する"""
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
 
 # ==========================================
 # 3. メインアプリケーション・クラス
 # ==========================================
 
 class NotebookApp(ctk.CTk):
+    def _windows_set_titlebar_color(self, color_mode):
+        """Windowsでテーマ切替時にウィンドウが一瞬消えるのを防ぐ。"""
+        return
+
     def __init__(self):
         super().__init__()
         
@@ -81,8 +92,9 @@ class NotebookApp(ctk.CTk):
         
         # 💡 新機能: アプリのオリジナルアイコン (app_icon.ico) を適用
         try:
-            if os.path.exists("app_icon.ico"):
-                self.iconbitmap("app_icon.ico")
+            icon_path = resource_path("app_icon.ico")
+            if os.path.exists(icon_path):
+                self.iconbitmap(icon_path)
         except Exception as e:
             print(f"アイコン適用に失敗しました: {e}")
             

@@ -1,9 +1,20 @@
 import os
 import json
+import sys
+from pathlib import Path
+
+
+def get_app_dir():
+    """ソース実行時はプロジェクト直下、exe実行時はexeのあるフォルダを返す"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
 
 # アプリの保存用フォルダ・ファイル名
-DATA_FILE = "notes.json"
-IMAGES_DIR = "images"
+APP_DIR = get_app_dir()
+DATA_FILE = str(APP_DIR / "notes.json")
+IMAGES_DIR = str(APP_DIR / "images")
 
 
 def load_data():
