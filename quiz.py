@@ -1,13 +1,15 @@
 import json
+import queue
 import random
+import threading
 import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
-import google.generativeai as genai
+from app_logger import log_error
 
 
 # ==========================================
-# AIクイズ表示用 ポップアップ
+# AIクイズ画面
 # ==========================================
 
 class QuizWindow(ctk.CTkToplevel):
@@ -23,20 +25,30 @@ class QuizWindow(ctk.CTkToplevel):
         
         self.grab_set()
         
-        # 💡 改善: 右上の「×」ボタンで閉じられた時も、安全な終了関数を実行するように設定
         self.protocol("WM_DELETE_WINDOW", self.close_quiz)
         
         self.quiz_questions = []
         self.current_q_index = 0
         self.selected_ans_var = tk.IntVar(value=-1)
         self.score = 0
+        self.generation_thread = None
+        self.result_queue = queue.Queue(maxsize=1)
+        self.result_poll_after_id = None
+        api_key = self.parent.data.get("gemini_api_key", "")
+        self.use_gemini_api = bool(api_key and self.parent.data.get("use_gemini_api", bool(api_key)))
         
         self.container = ctk.CTkFrame(self, fg_color="transparent")
         self.container.pack(fill="both", expand=True, padx=25, pady=25)
+
+        loading_text = (
+            "Gemini APIでクイズを生成しています。\nしばらくお待ちください。"
+            if self.use_gemini_api
+            else "ローカルモードでクイズを生成しています。"
+        )
         
         self.loading_label = ctk.CTkLabel(
             self.container, 
-            text="🤖 AI先生がメモを読んで\n理解度テストを考えています...\n\n(しばらくお待ちください)", 
+            text=loading_text,
             font=ctk.CTkFont(size=18, weight="bold")
         )
         self.loading_label.pack(expand=True)
@@ -44,26 +56,85 @@ class QuizWindow(ctk.CTkToplevel):
         self.after(500, self.generate_quiz_data)
 
     def close_quiz(self):
-        """クイズウィンドウを安全かつエラー無く破棄する"""
+        """クイズウィンドウを閉じる。"""
         try:
             self.grab_release()
-        except:
+        except tk.TclError:
             pass
-        # 💡 解決策: 現在のボタンイベント処理が完全に終了した直後（10ms後）に破棄を予約する（クラッシュ防止）
+
+        if self.result_poll_after_id is not None:
+            try:
+                self.after_cancel(self.result_poll_after_id)
+            except tk.TclError:
+                pass
+            self.result_poll_after_id = None
+
+        # ボタンイベント処理の完了後に破棄する。
         self.after(10, self.destroy)
 
     def generate_quiz_data(self):
+        if self.generation_thread and self.generation_thread.is_alive():
+            return
+
+        self.generation_thread = threading.Thread(target=self.generate_quiz_data_worker, daemon=True)
+        self.generation_thread.start()
+        self.poll_quiz_result()
+
+    def generate_quiz_data_worker(self):
+        questions = self.build_quiz_questions()
+        try:
+            self.result_queue.put_nowait(questions)
+        except queue.Full:
+            pass
+
+    def poll_quiz_result(self):
+        try:
+            questions = self.result_queue.get_nowait()
+        except queue.Empty:
+            if self.generation_thread and self.generation_thread.is_alive():
+                try:
+                    self.result_poll_after_id = self.after(100, self.poll_quiz_result)
+                except tk.TclError:
+                    self.result_poll_after_id = None
+                return
+            questions = []
+
+        self.result_poll_after_id = None
+        self.finish_quiz_generation(questions)
+
+    def build_quiz_questions(self):
         api_key = self.parent.data.get("gemini_api_key", "")
-        
-        if api_key:
+
+        if api_key and self.use_gemini_api:
             try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel("gemini-2.5-flash")
-                
-                # 💡 改善: 毎回違う切り口やバリエーションの問題を作成するようにプロンプトを強化！
-                prompt = f"""
-あなたはプロの家庭教師です。以下の生徒が書いた勉強メモを読み、理解度を測るための「3択問題」を{self.num_questions}問作成してください。
-毎回クイズを実行するたび、問題の切り口や出題するポイント、切り口をランダムに変えて、常に新鮮で異なる問題を作ってください。
+                questions = self.generate_gemini_quiz(api_key)
+            except Exception as e:
+                log_error("Gemini APIによるクイズ生成に失敗しました。ローカルモードに切り替えます。", e)
+                questions = self.generate_mock_quiz()
+        else:
+            questions = self.generate_mock_quiz()
+
+        return self.shuffle_quiz_choices(questions)
+
+    def generate_gemini_quiz(self, api_key):
+        try:
+            import google.generativeai as genai
+        except ImportError as exc:
+            raise RuntimeError("google-generativeai がインストールされていません。") from exc
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        prompt = f"""
+以下の学習メモを読み、理解度を確認するための3択問題を{self.num_questions}問作成してください。
+同じ内容に偏りすぎないよう、出題する観点を適度に変えてください。
+
+【問題文のルール】
+- question は問題文だけにしてください。
+- 問題文は、単独で読んでも自然に成立する文章にしてください。
+- 「学習メモに記載されている」「メモによると」「本文中の」「以下の内容では」など、メモの存在を参照する表現は禁止です。
+- 悪い例: 学習メモに記載されている「徳川家康」について正しい説明はどれですか？
+- 良い例: 徳川家康について正しい説明はどれですか？
 
 必ず出力は【以下の指定フォーマットの純粋なJSONデータのみ】にしてください。余計な説明文や```jsonなどのMarkdownタグは一切含めないでください。
 
@@ -77,42 +148,73 @@ class QuizWindow(ctk.CTkToplevel):
   }}
 ]
 
-【生徒の勉強メモ内容】
+【学習メモ】
 {self.note_content}
 """
-                # 💡 改善: temperature=0.8 を設定し、AIのクイズ生成のランダム性と多様性を大幅に向上させます
-                response = model.generate_content(
-                    prompt, 
-                    generation_config={"temperature": 0.8}
-                )
-                text = response.text.strip()
-                
-                if text.startswith("```"):
-                    text = text.split("```")[1]
-                    if text.startswith("json"):
-                        text = text[4:]
-                text = text.strip()
-                
-                self.quiz_questions = json.loads(text)
-                
-            except Exception as e:
-                print(f"Gemini APIによるクイズ生成失敗: {e}\nモッククイズに切り替えます。")
-                self.generate_mock_quiz()
-        else:
-            self.generate_mock_quiz()
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": 0.8}
+        )
+        text = self.clean_json_response(response.text)
+        return json.loads(text)
 
-        # 💡 改良: クイズデータが生成された後、すべての問題の選択肢（Choices）の順序をランダムにシャッフルし、
-        # 正解のインデックス（answer_index）を自動で追従させる！
-        # これにより、お試しモックモードでも、毎回答えの位置（A, B, C）が変化し、新鮮なクイズ体験ができます。
-        if self.quiz_questions:
-            for q in self.quiz_questions:
-                if "choices" in q and "answer_index" in q:
-                    choices = q["choices"]
-                    correct_ans = choices[q["answer_index"]]
-                    random.shuffle(choices)
-                    q["answer_index"] = choices.index(correct_ans)
+    def clean_json_response(self, text):
+        text = text.strip()
+        if text.startswith("```"):
+            parts = text.split("```")
+            if len(parts) >= 2:
+                text = parts[1].strip()
+            if text.startswith("json"):
+                text = text[4:].strip()
+        return text
 
-        self.loading_label.pack_forget()
+    def shuffle_quiz_choices(self, questions):
+        if not isinstance(questions, list):
+            return []
+
+        valid_questions = []
+        for q in questions:
+            if not isinstance(q, dict):
+                continue
+
+            choices = q.get("choices")
+            answer_index = q.get("answer_index")
+            if not isinstance(choices, list) or len(choices) < 3:
+                continue
+            if not isinstance(answer_index, int) or answer_index < 0 or answer_index >= len(choices):
+                continue
+
+            correct_ans = choices[answer_index]
+            if len(choices) > 3:
+                distractors = [choice for idx, choice in enumerate(choices) if idx != answer_index]
+                choices = [correct_ans] + distractors[:2]
+            else:
+                choices = list(choices)
+            random.shuffle(choices)
+            q = {
+                "question": q.get("question", ""),
+                "choices": choices,
+                "answer_index": choices.index(correct_ans),
+                "explanation": q.get("explanation", "")
+            }
+            valid_questions.append(q)
+
+        return valid_questions[:self.num_questions]
+
+    def finish_quiz_generation(self, questions):
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+
+        self.quiz_questions = questions
+
+        try:
+            if self.loading_label.winfo_exists():
+                self.loading_label.pack_forget()
+        except tk.TclError:
+            return
         
         if self.quiz_questions:
             self.show_question()
@@ -122,10 +224,10 @@ class QuizWindow(ctk.CTkToplevel):
                 text="ローカルクイズを生成できませんでした。\n\n"
                      "【クイズを作成するためのメモの書き方例】\n"
                      "■ 重要語句 : その意味や説明\n"
-                     "■ 公式名 ➔ 公式の内容や解説\n"
+                     "■ 公式名 → 公式の内容や解説\n"
                      "■ 英単語 【品詞】 日本語訳\n\n"
-                     "このようにメモ帳に書き込んでいただくと、自動的に3択問題が作成されます！\n"
-                     "または、Gemini APIキーを設定すると、AIが内容を読み取って自動で問題を作成します。", 
+                     "上記のようにメモを書くと、ローカルモードでも3択問題を作成できます。\n"
+                     "または、Gemini APIキーを設定すると、AIが内容を読み取って自動で問題を作成します。",
                 font=ctk.CTkFont(size=14),
                 justify="left"
             )
@@ -133,20 +235,17 @@ class QuizWindow(ctk.CTkToplevel):
 
     def generate_mock_quiz(self):
         """
-        【完全動的ローカルクイズ生成エンジン】
-        メモ内に書かれた「重要語句」や「公式」の箇条書きを完璧に解析し、
-        完全にメモ内容に基づいたオリジナルの3択クイズを100%ローカル（オフライン）で作成します。
-        汎用的な定型問題は一切排除します。
+        メモ内の語句や定義から、ローカルで3択クイズを作成する。
         """
-        self.quiz_questions = []
+        quiz_questions = []
         
         # メモ内の語句と定義を解析抽出する辞書
-        # 例: {"analyze": "〜を分析する", "二次方程式の解の公式": "x = (-b ± √(b^2 - 4ac)) / 2a"}
+        # 例: {"用語": "説明", "公式名": "公式の内容"}
         definitions = {}
         
         lines = self.note_content.split("\n")
-        for line in lines:
-            line = line.strip()
+        for idx, raw_line in enumerate(lines):
+            line = raw_line.strip()
             if not line:
                 continue
                 
@@ -169,7 +268,7 @@ class QuizWindow(ctk.CTkToplevel):
                     definitions[term] = meaning
                     continue
                     
-            # パターンC: ■ 単語 ➔ 意味
+            # パターンC: ■ 単語 → 意味
             if "➔" in line or "→" in line:
                 separator = "➔" if "➔" in line else "→"
                 parts = line.split(separator, 1)
@@ -183,7 +282,6 @@ class QuizWindow(ctk.CTkToplevel):
             if line.startswith("■") and len(line) < 30:
                 term = line.replace("■", "").strip()
                 # 次の非空行を意味とみなす
-                idx = lines.index(line)
                 meaning = ""
                 for next_line in lines[idx+1:]:
                     if next_line.strip() and not next_line.strip().startswith("■"):
@@ -192,10 +290,7 @@ class QuizWindow(ctk.CTkToplevel):
                 if term and meaning:
                     definitions[term] = meaning
 
-        # 抽出した定義リストをもとに動的クイズを組み立てる
-        all_terms = list(definitions.keys())
-        
-        # 1. 抽出できた重要語句から直接問題を作る！
+        # 抽出できた重要語句から問題を作る。
         for term, meaning in definitions.items():
             # 誤り選択肢（他の語句の意味をダミーにする）
             distractors = []
@@ -218,39 +313,15 @@ class QuizWindow(ctk.CTkToplevel):
                     
             choices = [meaning, distractors[0], distractors[1]]
             
-            self.quiz_questions.append({
+            quiz_questions.append({
                 "question": f"メモに書かれた『 {term} 』について、正しい説明または定義はどれですか？",
                 "choices": choices,
-                "answer_index": 0, # 後で自動シャッフルされるので0固定でOK
-                "explanation": f"正解は『{meaning}』です！あなたの書いたメモの中にしっかりと記録されています。素晴らしい学習成果です！"
+                "answer_index": 0,
+                "explanation": f"正解は『{meaning}』です。メモ内の記述をもとにしています。"
             })
 
-        # 2. 定義が少なすぎて3問未満の場合の、メモ全体に基づく問題
-        if len(self.quiz_questions) < 3:
-            # 英語用の特製問題（含まれている場合）
-            if ("analyze" in self.note_content.lower() or "英語" in self.note_content) and not any("analyze" in q["question"] for q in self.quiz_questions):
-                self.quiz_questions.append({
-                    "question": "英単語『analyze』の正しい日本語訳はどれでしょうか？",
-                    "choices": ["〜を分析・調査する", "〜を合成または統合する", "〜を否定または拒絶する"],
-                    "answer_index": 0,
-                    "explanation": "『analyze』は『〜を分析する』という意味の重要な動詞です。ITやリバースエンジニアリングで頻出の言葉です！"
-                })
-                
-            # 数学用の特製問題（含まれている場合）
-            if ("公式" in self.note_content or "数学" in self.note_content or "sin" in self.note_content.lower()) and not any("三角関数" in q["question"] for q in self.quiz_questions):
-                self.quiz_questions.append({
-                    "question": "数学の基本三角関数において、常に成り立つ公式は次のうちどれですか？",
-                    "choices": [
-                        "sin^2(x) + cos^2(x) = 1",
-                        "sin^2(x) - cos^2(x) = 1",
-                        "sin(x) + cos(x) = 1"
-                    ],
-                    "answer_index": 0,
-                    "explanation": "正解は『sin^2(x) + cos^2(x) = 1』です！これは三平方の定理から導き出される、三角関数の最重要公式です。"
-                })
-
         # 指定された問題数になるように調整（最大指定数）
-        self.quiz_questions = self.quiz_questions[:self.num_questions]
+        return quiz_questions[:self.num_questions]
 
     def show_question(self):
         """現在のアクティブなクイズ問題を描画する"""
@@ -293,7 +364,7 @@ class QuizWindow(ctk.CTkToplevel):
 
         self.submit_btn = ctk.CTkButton(
             self.container, 
-            text="この答えで回答する ➔", 
+            text="この答えで回答する",
             fg_color="#8a2be2", 
             hover_color="#6a1b9a", 
             height=45,
@@ -315,18 +386,15 @@ class QuizWindow(ctk.CTkToplevel):
         if is_correct:
             self.score += 1
 
-        # 💡 UI改善: スペースを空けるため、回答し終わった「回答ボタン」と「選択肢」は画面から消去します！
         self.submit_btn.pack_forget()
         self.choices_frame.pack_forget()
 
-        result_title = "🎉 正解です！" if is_correct else "❌ 残念、不正解..."
+        result_title = "正解です" if is_correct else "不正解です"
         result_color = "#2ecc71" if is_correct else "#e74c3c"
         
-        # 💡 UI改善: 画面圧迫を防ぐため expand=True を外します
         explanation_box = ctk.CTkFrame(self.container, fg_color=("#eaeaea", "#2b2b2b"), border_width=1, border_color=result_color)
         explanation_box.pack(fill="x", pady=10)
         
-        # 💡 改善: タイトルや正解テキストが非常に長い場合に改行されるよう wraplength=540 を設定！
         lbl_title = ctk.CTkLabel(
             explanation_box, 
             text=result_title, 
@@ -352,10 +420,10 @@ class QuizWindow(ctk.CTkToplevel):
         lbl_exp.pack(anchor="w", padx=15, pady=(5, 10))
 
         if self.current_q_index + 1 < len(self.quiz_questions):
-            next_btn_text = "次の問題へ ➔"
+            next_btn_text = "次の問題へ"
             next_cmd = self.next_question
         else:
-            next_btn_text = "最終結果を見る ➔"
+            next_btn_text = "最終結果を見る"
             next_cmd = self.show_final_results
 
         next_btn = ctk.CTkButton(
@@ -381,13 +449,13 @@ class QuizWindow(ctk.CTkToplevel):
         pct = int((self.score / total) * 100)
         
         if pct == 100:
-            msg = "パーフェクト！完璧にメモの内容をマスターしています！天才ですね！✨"
+            msg = "全問正解です。メモの内容をよく確認できています。"
             color = "#2ecc71"
         elif pct >= 60:
-            msg = "素晴らしい！かなり高い理解度です。間違えた部分をメモで見直せば完璧です！👍"
+            msg = "一定の理解ができています。間違えた部分をメモで確認してください。"
             color = "#3498db"
         else:
-            msg = "伸びしろがたくさんあります！もう一度ノートを読み返して、再チャレンジしてみましょう！📚"
+            msg = "もう一度ノートを確認してから再実行してください。"
             color = "#e67e22"
 
         score_lbl = ctk.CTkLabel(
@@ -407,7 +475,6 @@ class QuizWindow(ctk.CTkToplevel):
         )
         msg_lbl.pack(pady=10)
 
-        # 💡 安全なクローズを呼び出すボタンへ変更！
         close_btn = ctk.CTkButton(
             self.container, 
             text="テストを終了してノートに戻る", 

@@ -21,6 +21,7 @@
       "category": "数学",
       "color": "rose",
       "font_size": 20,
+      "created_at": "2026-05-27 17:54:02",
       "updated_at": "2026-05-27 17:54:02"
     },
     {
@@ -38,8 +39,10 @@
       "category": "英語",
       "color": "default",
       "font_size": 20,
+      "created_at": "2026-05-26 17:35:43",
       "updated_at": "2026-05-26 17:35:43"
     }
   ],
-  "gemini_api_key": ""
+  "gemini_api_key": "",
+  "use_gemini_api": false
 }

@@ -30,6 +30,7 @@ Desktop.ini
 
 # App-specific local user data (Crucial for API key safety!)
 notes.json
+app.log
 
 # User inserted images (preserve the folder but ignore files inside)
 images/*
