@@ -5,10 +5,10 @@ import uuid
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
-from data import IMAGES_DIR, save_data
-from image_embed import IMAGE_SIZE_OPTIONS, load_resized_image, normalize_image_markers_in_text, parse_image_marker
-from quiz import QuizWindow
-from ui_config import DEFAULT_FONT_SIZE, FONT_COLORS, app_font
+from app.core.data import IMAGES_DIR, save_data
+from app.features.image_embed import IMAGE_SIZE_OPTIONS, load_resized_image, normalize_image_markers_in_text, parse_image_marker
+from app.features.quiz import QuizWindow
+from app.core.ui_config import DEFAULT_FONT_SIZE, FONT_COLORS, app_font
 
 
 class NotesMixin:

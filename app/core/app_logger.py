@@ -7,7 +7,7 @@ from pathlib import Path
 def get_log_dir():
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parents[2]
 
 
 LOG_FILE = get_log_dir() / "app.log"

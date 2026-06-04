@@ -3,11 +3,11 @@ import ctypes
 import tkinter as tk
 import customtkinter as ctk
 from PIL import ImageTk
-from app_logger import log_error
-from data import IMAGES_DIR
-from image_embed import DEFAULT_IMAGE_WIDTH, image_marker_text, load_resized_image, parse_image_marker
-from platform_ime import LOGFONTW, imm32, wintypes
-from ui_config import BLOCK_STYLES, DEFAULT_BLOCK_STYLE_LABEL, DEFAULT_FONT_SIZE, FONT_COLORS, FONT_SIZE_VALUES, app_font
+from app.core.app_logger import log_error
+from app.core.data import IMAGES_DIR
+from app.features.image_embed import DEFAULT_IMAGE_WIDTH, image_marker_text, load_resized_image, parse_image_marker
+from app.core.platform_ime import LOGFONTW, imm32, wintypes
+from app.core.ui_config import BLOCK_STYLES, DEFAULT_BLOCK_STYLE_LABEL, DEFAULT_FONT_SIZE, FONT_COLORS, FONT_SIZE_VALUES, app_font
 
 
 class EditorMixin:

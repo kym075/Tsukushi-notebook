@@ -1,8 +1,8 @@
 import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
-from data import save_data
-from ui_config import app_font
+from app.core.data import save_data
+from app.core.ui_config import app_font
 
 
 class SettingsMixin:
