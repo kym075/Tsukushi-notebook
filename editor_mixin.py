@@ -57,6 +57,11 @@ class EditorMixin:
         self.editor._textbox.configure(insertbackground=text_hex)
         self.sync_windows_ime_font(weight)
 
+    def sync_editor_cursor_color(self):
+        mode = ctk.get_appearance_mode().lower()
+        color_config = FONT_COLORS.get(self.active_typing_color, FONT_COLORS["default"])
+        self.editor._textbox.configure(insertbackground=color_config[mode])
+
     def sync_windows_ime_font(self, weight="normal"):
         """Windows IMEの変換中文字にも、現在の入力フォントサイズを反映する。"""
         if imm32 is None or not hasattr(self, "editor"):
@@ -559,9 +564,11 @@ class EditorMixin:
         self.set_active_typing_style(size=body_style["size"], bold=body_style["bold"])
 
     def change_typing_color(self, color_key):
+        if self.apply_text_style_to_selected_ranges(color=color_key):
+            return
+
         self.active_typing_color = color_key
-        self.sync_editor_input_style()
-        self.apply_text_style_to_selected_ranges(color=color_key)
+        self.sync_editor_cursor_color()
 
     def toggle_typing_bold(self):
         self.active_typing_bold = not self.active_typing_bold
