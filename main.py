@@ -1,17 +1,13 @@
 import os
-import queue
-import threading
 import tkinter as tk
-import webbrowser
 from tkinter import messagebox
 import customtkinter as ctk
-from app_logger import log_error
-from data import IMAGES_DIR, consume_load_warning, load_data
-from editor_mixin import EditorMixin
-from notes_mixin import NotesMixin
-from settings_mixin import SettingsMixin
-from ui_config import (
-    APP_VERSION,
+from app.core.app_logger import log_error
+from app.core.data import IMAGES_DIR, consume_load_warning, load_data
+from app.features.editor_mixin import EditorMixin
+from app.features.notes_mixin import NotesMixin
+from app.features.settings_mixin import SettingsMixin
+from app.core.ui_config import (
     BLOCK_STYLE_LABELS,
     DEFAULT_BLOCK_STYLE_LABEL,
     DEFAULT_FONT_SIZE,
@@ -21,13 +17,13 @@ from ui_config import (
     app_font,
     resource_path,
 )
-from update_checker import check_for_update
+from app.updates.update_ui import UpdateMixin
 
 
 COMPACT_LAYOUT_WIDTH = 1000
 
 
-class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
+class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
     def __init__(self):
         super().__init__()
         
@@ -47,9 +43,7 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.pending_format_start_index = None
         self.pending_format_after_id = None
         self.compact_layout_active = None
-        self.update_check_after_id = None
-        self.update_check_queue = queue.Queue(maxsize=1)
-        self.update_window = None
+        self.init_update_state()
         self.note_sort_var = ctk.StringVar(value=DEFAULT_NOTE_SORT_LABEL)
         self.block_style_var = ctk.StringVar(value=DEFAULT_BLOCK_STYLE_LABEL)
 
@@ -117,97 +111,6 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
 
         self.load_warning_message = None
         messagebox.showwarning("データの読み込み", warning_message)
-
-    def start_update_check(self):
-        self.update_check_after_id = None
-        worker = threading.Thread(target=self.run_update_check, daemon=True)
-        worker.start()
-        self.update_check_after_id = self.after(200, self.poll_update_check_result)
-
-    def run_update_check(self):
-        update_info = None
-        try:
-            update_info = check_for_update(APP_VERSION)
-        except Exception as e:
-            log_error("アップデート確認に失敗しました。", e)
-
-        try:
-            self.update_check_queue.put_nowait(update_info)
-        except queue.Full:
-            pass
-
-    def poll_update_check_result(self):
-        try:
-            update_info = self.update_check_queue.get_nowait()
-        except queue.Empty:
-            self.update_check_after_id = self.after(200, self.poll_update_check_result)
-            return
-
-        self.update_check_after_id = None
-        if update_info:
-            self.show_update_notification(update_info)
-
-    def show_update_notification(self, update_info):
-        if self.update_window is not None and self.update_window.winfo_exists():
-            self.update_window.focus()
-            return
-
-        window = ctk.CTkToplevel(self)
-        self.update_window = window
-        window.title("アップデートがあります")
-        window.geometry("460x260")
-        window.resizable(False, False)
-        window.transient(self)
-
-        container = ctk.CTkFrame(window, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=24, pady=22)
-        container.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            container,
-            text="新しいバージョンがあります",
-            font=app_font(size=18, weight="bold"),
-            anchor="w",
-        ).grid(row=0, column=0, sticky="ew")
-
-        message = (
-            f"現在のバージョン: {update_info.current_version}\n"
-            f"最新バージョン: {update_info.latest_version}\n\n"
-            "アップデートする場合は、下のリンクから最新版をダウンロードしてください。"
-        )
-        ctk.CTkLabel(
-            container,
-            text=message,
-            font=app_font(size=13),
-            justify="left",
-            anchor="w",
-        ).grid(row=1, column=0, sticky="ew", pady=(12, 10))
-
-        release_url_entry = ctk.CTkEntry(container, font=app_font(size=12))
-        release_url_entry.grid(row=2, column=0, sticky="ew")
-        release_url_entry.insert(0, update_info.release_url)
-        release_url_entry.configure(state="readonly")
-
-        button_row = ctk.CTkFrame(container, fg_color="transparent")
-        button_row.grid(row=3, column=0, sticky="e", pady=(18, 0))
-
-        ctk.CTkButton(
-            button_row,
-            text="あとで",
-            width=90,
-            font=app_font(size=13),
-            fg_color="gray40",
-            hover_color="gray30",
-            command=window.destroy,
-        ).pack(side="right", padx=(8, 0))
-
-        ctk.CTkButton(
-            button_row,
-            text="リリースページを開く",
-            width=160,
-            font=app_font(size=13, weight="bold"),
-            command=lambda: webbrowser.open(update_info.release_url),
-        ).pack(side="right")
 
     def on_window_resized(self, event):
         if event.widget is self:

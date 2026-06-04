@@ -1,9 +1,10 @@
 import os
 import sys
+from pathlib import Path
 import customtkinter as ctk
 
 
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 
 FONT_COLORS = {
     "default": {
@@ -61,5 +62,5 @@ def app_font(**kwargs):
 
 def resource_path(relative_path):
     """PyInstaller同梱時とソース実行時で同じ書き方でファイルを参照する。"""
-    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2])
     return os.path.join(base_path, relative_path)

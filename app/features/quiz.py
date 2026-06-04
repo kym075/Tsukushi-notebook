@@ -5,7 +5,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
-from app_logger import log_error
+from app.core.app_logger import log_error
 
 
 # ==========================================

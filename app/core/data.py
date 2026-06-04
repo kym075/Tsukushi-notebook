@@ -4,14 +4,14 @@ import shutil
 import sys
 import datetime
 from pathlib import Path
-from app_logger import log_error
+from app.core.app_logger import log_error
 
 
 def get_app_dir():
     """ソース実行時はプロジェクト直下、exe実行時はexeのあるフォルダを返す"""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parents[2]
 
 
 # アプリの保存用フォルダ・ファイル名
@@ -39,7 +39,9 @@ def default_data():
         "categories": ["数学", "英語", "世界史"],
         "notes": [],
         "gemini_api_key": "",
-        "use_gemini_api": False
+        "use_gemini_api": False,
+        "update_snoozed_version": "",
+        "update_snoozed_until": "",
     }
 
 
@@ -57,6 +59,10 @@ def normalize_data(data):
     if not isinstance(normalized.get("gemini_api_key"), str):
         normalized["gemini_api_key"] = ""
     normalized["use_gemini_api"] = bool(normalized.get("use_gemini_api"))
+    if not isinstance(normalized.get("update_snoozed_version"), str):
+        normalized["update_snoozed_version"] = ""
+    if not isinstance(normalized.get("update_snoozed_until"), str):
+        normalized["update_snoozed_until"] = ""
 
     return normalized
 
