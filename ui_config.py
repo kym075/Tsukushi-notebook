@@ -3,6 +3,8 @@ import sys
 import customtkinter as ctk
 
 
+APP_VERSION = "1.1.1"
+
 FONT_COLORS = {
     "default": {
         "name": "標準",

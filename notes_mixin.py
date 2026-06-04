@@ -247,6 +247,7 @@ class NotesMixin:
 
         # 本文と画像のデコード描画
         self.render_note_content(note_data["content"])
+        self.clear_multi_select_ranges()
         self.editor._textbox.mark_set("insert", "1.0")
         self.editor._textbox.see("1.0")
         self.sync_editor_input_style()

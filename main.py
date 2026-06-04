@@ -1,5 +1,8 @@
 import os
+import queue
+import threading
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox
 import customtkinter as ctk
 from app_logger import log_error
@@ -8,6 +11,7 @@ from editor_mixin import EditorMixin
 from notes_mixin import NotesMixin
 from settings_mixin import SettingsMixin
 from ui_config import (
+    APP_VERSION,
     BLOCK_STYLE_LABELS,
     DEFAULT_BLOCK_STYLE_LABEL,
     DEFAULT_FONT_SIZE,
@@ -17,6 +21,10 @@ from ui_config import (
     app_font,
     resource_path,
 )
+from update_checker import check_for_update
+
+
+COMPACT_LAYOUT_WIDTH = 1000
 
 
 class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
@@ -38,6 +46,10 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.auto_save_timer = None         # 自動保存用タイマーID
         self.pending_format_start_index = None
         self.pending_format_after_id = None
+        self.compact_layout_active = None
+        self.update_check_after_id = None
+        self.update_check_queue = queue.Queue(maxsize=1)
+        self.update_window = None
         self.note_sort_var = ctk.StringVar(value=DEFAULT_NOTE_SORT_LABEL)
         self.block_style_var = ctk.StringVar(value=DEFAULT_BLOCK_STYLE_LABEL)
 
@@ -59,7 +71,7 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
             log_error("アイコン適用に失敗しました。", e)
             
         self.geometry("1100x700")
-        self.minsize(900, 600)
+        self.minsize(620, 500)
         self.after(0, self.maximize_window)
 
         # 初期表示モード
@@ -87,7 +99,10 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.refresh_notes_list()
         self.load_first_note()
         self.protocol("WM_DELETE_WINDOW", self.on_app_close)
+        self.bind("<Configure>", self.on_window_resized)
+        self.after_idle(self.update_responsive_layout)
         self.after(300, self.show_load_warning_if_needed)
+        self.update_check_after_id = self.after(1500, self.start_update_check)
 
     def maximize_window(self):
         try:
@@ -103,6 +118,135 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.load_warning_message = None
         messagebox.showwarning("データの読み込み", warning_message)
 
+    def start_update_check(self):
+        self.update_check_after_id = None
+        worker = threading.Thread(target=self.run_update_check, daemon=True)
+        worker.start()
+        self.update_check_after_id = self.after(200, self.poll_update_check_result)
+
+    def run_update_check(self):
+        update_info = None
+        try:
+            update_info = check_for_update(APP_VERSION)
+        except Exception as e:
+            log_error("アップデート確認に失敗しました。", e)
+
+        try:
+            self.update_check_queue.put_nowait(update_info)
+        except queue.Full:
+            pass
+
+    def poll_update_check_result(self):
+        try:
+            update_info = self.update_check_queue.get_nowait()
+        except queue.Empty:
+            self.update_check_after_id = self.after(200, self.poll_update_check_result)
+            return
+
+        self.update_check_after_id = None
+        if update_info:
+            self.show_update_notification(update_info)
+
+    def show_update_notification(self, update_info):
+        if self.update_window is not None and self.update_window.winfo_exists():
+            self.update_window.focus()
+            return
+
+        window = ctk.CTkToplevel(self)
+        self.update_window = window
+        window.title("アップデートがあります")
+        window.geometry("460x260")
+        window.resizable(False, False)
+        window.transient(self)
+
+        container = ctk.CTkFrame(window, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=24, pady=22)
+        container.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            container,
+            text="新しいバージョンがあります",
+            font=app_font(size=18, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
+
+        message = (
+            f"現在のバージョン: {update_info.current_version}\n"
+            f"最新バージョン: {update_info.latest_version}\n\n"
+            "アップデートする場合は、下のリンクから最新版をダウンロードしてください。"
+        )
+        ctk.CTkLabel(
+            container,
+            text=message,
+            font=app_font(size=13),
+            justify="left",
+            anchor="w",
+        ).grid(row=1, column=0, sticky="ew", pady=(12, 10))
+
+        release_url_entry = ctk.CTkEntry(container, font=app_font(size=12))
+        release_url_entry.grid(row=2, column=0, sticky="ew")
+        release_url_entry.insert(0, update_info.release_url)
+        release_url_entry.configure(state="readonly")
+
+        button_row = ctk.CTkFrame(container, fg_color="transparent")
+        button_row.grid(row=3, column=0, sticky="e", pady=(18, 0))
+
+        ctk.CTkButton(
+            button_row,
+            text="あとで",
+            width=90,
+            font=app_font(size=13),
+            fg_color="gray40",
+            hover_color="gray30",
+            command=window.destroy,
+        ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkButton(
+            button_row,
+            text="リリースページを開く",
+            width=160,
+            font=app_font(size=13, weight="bold"),
+            command=lambda: webbrowser.open(update_info.release_url),
+        ).pack(side="right")
+
+    def on_window_resized(self, event):
+        if event.widget is self:
+            self.update_responsive_layout(event.width)
+
+    def update_responsive_layout(self, width=None):
+        if width is None:
+            width = self.winfo_width()
+        if width <= 1:
+            return
+
+        compact = width < COMPACT_LAYOUT_WIDTH
+        if compact == self.compact_layout_active:
+            return
+
+        self.compact_layout_active = compact
+        if compact:
+            self.apply_compact_layout()
+        else:
+            self.apply_full_layout()
+
+    def apply_compact_layout(self):
+        self.sidebar.grid_remove()
+        self.list_frame.grid_remove()
+        self.editor_frame.grid(row=0, column=0, columnspan=3, sticky="nsew", padx=0, pady=0)
+
+        self.grid_columnconfigure(0, weight=1, minsize=0)
+        self.grid_columnconfigure(1, weight=0, minsize=0)
+        self.grid_columnconfigure(2, weight=0, minsize=0)
+
+    def apply_full_layout(self):
+        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.list_frame.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+        self.editor_frame.grid(row=0, column=2, columnspan=1, sticky="nsew", padx=0, pady=0)
+
+        self.grid_columnconfigure(0, weight=0, minsize=200)
+        self.grid_columnconfigure(1, weight=0, minsize=250)
+        self.grid_columnconfigure(2, weight=1, minsize=0)
+
     def on_app_close(self):
         """終了前に保留中の保存を反映してからウィンドウを閉じる。"""
         if getattr(self, "_is_closing", False):
@@ -110,7 +254,7 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
 
         self._is_closing = True
 
-        for timer_attr in ("auto_save_timer", "pending_format_after_id"):
+        for timer_attr in ("auto_save_timer", "pending_format_after_id", "update_check_after_id"):
             timer_id = getattr(self, timer_attr, None)
             if timer_id is not None:
                 try:
@@ -283,8 +427,14 @@ class NotebookApp(EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         
         # キー入力でリアルタイム修飾
         self.editor.bind("<KeyPress>", self.on_key_pressed)
+        self.editor._textbox.bind("<Control-ButtonPress-1>", self.on_multi_select_press)
+        self.editor._textbox.bind("<Control-B1-Motion>", self.on_multi_select_drag)
+        self.editor._textbox.bind("<Control-ButtonRelease-1>", self.on_multi_select_release)
+        self.editor._textbox.bind("<ButtonPress-1>", self.on_editor_button_press, add="+")
+        self.editor._textbox.bind("<ButtonRelease-1>", self.on_editor_button_release, add="+")
         self.editor._textbox.bind("<BackSpace>", self.on_delete_key_pressed, add="+")
         self.editor._textbox.bind("<Delete>", self.on_delete_key_pressed, add="+")
+        self.editor._textbox.bind("<Escape>", self.clear_multi_select_ranges, add="+")
         self.editor.bind("<Return>", self.on_return_pressed, add="+")
         self.editor._textbox.bind("<FocusIn>", lambda _event: self.sync_editor_input_style(), add="+")
         self.editor._textbox.bind("<ButtonRelease-1>", self.move_insert_out_of_image_marker, add="+")

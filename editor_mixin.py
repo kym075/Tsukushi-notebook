@@ -28,6 +28,9 @@ class EditorMixin:
             text_widget.tag_configure(self.font_tag_name(size, True), font=self.scaled_editor_font(size=size, weight="bold"))
         text_widget.tag_configure("underline", underline=True)
         text_widget.tag_configure("image_marker", elide=True)
+        multi_select_bg = "#b8d8ff" if mode == "light" else "#315a83"
+        text_widget.tag_configure("multi_select", background=multi_select_bg)
+        text_widget.tag_configure("multi_select_preview", background=multi_select_bg)
 
     def scaled_editor_font(self, size=DEFAULT_FONT_SIZE, weight="normal", slant="roman", underline=False):
         """Tk Textタグ用に、CTkTextboxと同じスケーリング済みフォントタプルを返す。"""
@@ -151,6 +154,146 @@ class EditorMixin:
                 self.block_style_var.set(label)
                 return
 
+    def is_control_pressed(self, event):
+        return bool(getattr(event, "state", 0) & 0x0004)
+
+    def on_editor_button_press(self, event):
+        if not self.is_control_pressed(event):
+            self.clear_multi_select_ranges()
+        return None
+
+    def on_editor_button_release(self, event):
+        if not self.is_control_pressed(event):
+            return None
+
+        self.add_current_selection_to_multi_select()
+        return None
+
+    def text_index_at_event(self, event):
+        return self.editor._textbox.index(f"@{event.x},{event.y}")
+
+    def ordered_text_range(self, start, end):
+        text_widget = self.editor._textbox
+        if text_widget.compare(start, "==", end):
+            return None
+        if text_widget.compare(start, ">", end):
+            start, end = end, start
+        return text_widget.index(start), text_widget.index(end)
+
+    def add_multi_select_range(self, start, end):
+        text_range = self.ordered_text_range(start, end)
+        if text_range is None:
+            return False
+
+        self.editor._textbox.tag_add("multi_select", text_range[0], text_range[1])
+        return True
+
+    def on_multi_select_press(self, event):
+        text_widget = self.editor._textbox
+        self.add_current_selection_to_multi_select()
+        text_widget.tag_remove("multi_select_preview", "1.0", "end")
+
+        try:
+            self.multi_select_anchor = self.text_index_at_event(event)
+            text_widget.mark_set("insert", self.multi_select_anchor)
+        except tk.TclError:
+            self.multi_select_anchor = None
+
+        return "break"
+
+    def on_multi_select_drag(self, event):
+        anchor = getattr(self, "multi_select_anchor", None)
+        if anchor is None:
+            return "break"
+
+        text_widget = self.editor._textbox
+        text_widget.tag_remove("multi_select_preview", "1.0", "end")
+
+        try:
+            current = self.text_index_at_event(event)
+            text_range = self.ordered_text_range(anchor, current)
+            if text_range is not None:
+                text_widget.tag_add("multi_select_preview", text_range[0], text_range[1])
+        except tk.TclError:
+            pass
+
+        return "break"
+
+    def on_multi_select_release(self, event):
+        anchor = getattr(self, "multi_select_anchor", None)
+        if anchor is None:
+            return "break"
+
+        text_widget = self.editor._textbox
+        text_widget.tag_remove("multi_select_preview", "1.0", "end")
+
+        try:
+            current = self.text_index_at_event(event)
+            self.add_multi_select_range(anchor, current)
+        except tk.TclError:
+            pass
+
+        self.multi_select_anchor = None
+        text_widget.tag_remove("sel", "1.0", "end")
+        return "break"
+
+    def add_current_selection_to_multi_select(self):
+        text_widget = self.editor._textbox
+        try:
+            if not text_widget.tag_ranges("sel"):
+                return
+            start = text_widget.index("sel.first")
+            end = text_widget.index("sel.last")
+            self.add_multi_select_range(start, end)
+            text_widget.tag_remove("sel", "1.0", "end")
+        except tk.TclError:
+            return
+
+    def clear_multi_select_ranges(self, _event=None):
+        if hasattr(self, "editor"):
+            try:
+                self.editor._textbox.tag_remove("multi_select", "1.0", "end")
+                self.editor._textbox.tag_remove("multi_select_preview", "1.0", "end")
+                self.multi_select_anchor = None
+            except tk.TclError:
+                pass
+        return None
+
+    def selected_text_ranges(self):
+        text_widget = self.editor._textbox
+        ranges = []
+
+        tag_ranges = text_widget.tag_ranges("multi_select")
+        for i in range(0, len(tag_ranges), 2):
+            ranges.append((text_widget.index(tag_ranges[i]), text_widget.index(tag_ranges[i + 1])))
+
+        try:
+            if text_widget.tag_ranges("sel"):
+                ranges.append((text_widget.index("sel.first"), text_widget.index("sel.last")))
+        except tk.TclError:
+            pass
+
+        normalized_ranges = []
+        for start, end in ranges:
+            if text_widget.compare(start, "==", end):
+                continue
+            if text_widget.compare(start, ">", end):
+                start, end = end, start
+            normalized_ranges.append((text_widget.index(start), text_widget.index(end)))
+
+        return normalized_ranges
+
+    def apply_text_style_to_selected_ranges(self, color=None, size=None, bold=None, underline=None):
+        ranges = self.selected_text_ranges()
+        if not ranges:
+            return False
+
+        for start, end in ranges:
+            self.apply_text_style_range(start, end, color=color, size=size, bold=bold, underline=underline)
+
+        self.trigger_auto_save()
+        return True
+
     def selected_block_lines(self):
         text_widget = self.editor._textbox
         try:
@@ -179,8 +322,23 @@ class EditorMixin:
                 self.apply_text_style_range(line_start, line_end, size=size, bold=bold)
 
     def apply_block_style_to_current_blocks(self, size=None, bold=None):
-        start_line, end_line = self.selected_block_lines()
-        self.apply_block_style_to_lines(start_line, end_line, size=size, bold=bold)
+        selected_ranges = self.selected_text_ranges()
+        if not selected_ranges:
+            start_line, end_line = self.selected_block_lines()
+            self.apply_block_style_to_lines(start_line, end_line, size=size, bold=bold)
+            return
+
+        handled_lines = set()
+        for start, end in selected_ranges:
+            start_line = int(start.split(".")[0])
+            end_line = int(end.split(".")[0])
+            if self.editor._textbox.compare(end, "==", f"{end_line}.0") and end_line > start_line:
+                end_line -= 1
+            for line in range(start_line, end_line + 1):
+                if line in handled_lines:
+                    continue
+                handled_lines.add(line)
+                self.apply_block_style_to_lines(line, line, size=size, bold=bold)
 
     def on_block_style_changed(self, style_label):
         if style_label not in BLOCK_STYLES:
@@ -403,46 +561,21 @@ class EditorMixin:
     def change_typing_color(self, color_key):
         self.active_typing_color = color_key
         self.sync_editor_input_style()
-        
-        try:
-            text_widget = self.editor._textbox
-            if text_widget.tag_ranges("sel"):
-                start = text_widget.index("sel.first")
-                end = text_widget.index("sel.last")
-                self.apply_text_style_range(start, end, color=color_key)
-                self.trigger_auto_save()
-        except tk.TclError:
-            pass
+        self.apply_text_style_to_selected_ranges(color=color_key)
 
     def toggle_typing_bold(self):
         self.active_typing_bold = not self.active_typing_bold
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()
-        try:
-            text_widget = self.editor._textbox
-            if text_widget.tag_ranges("sel"):
-                start = text_widget.index("sel.first")
-                end = text_widget.index("sel.last")
-                self.apply_text_style_range(start, end, bold=self.active_typing_bold)
-                self.trigger_auto_save()
-        except tk.TclError:
-            pass
+        self.apply_text_style_to_selected_ranges(bold=self.active_typing_bold)
 
     def toggle_typing_underline(self):
         self.active_typing_underline = not self.active_typing_underline
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()
-        try:
-            text_widget = self.editor._textbox
-            if text_widget.tag_ranges("sel"):
-                start = text_widget.index("sel.first")
-                end = text_widget.index("sel.last")
-                self.apply_text_style_range(start, end, underline=self.active_typing_underline)
-                self.trigger_auto_save()
-        except tk.TclError:
-            pass
+        self.apply_text_style_to_selected_ranges(underline=self.active_typing_underline)
 
     def update_style_buttons(self):
         active_color = ("#d8d8d8", "#3a3a3a")
