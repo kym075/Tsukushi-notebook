@@ -1,3 +1,4 @@
+import hashlib
 import os
 import subprocess
 import sys
@@ -14,6 +15,8 @@ def is_auto_update_supported(update_info):
     if not getattr(sys, "frozen", False):
         return False
     if not getattr(update_info, "asset_url", ""):
+        return False
+    if not getattr(update_info, "asset_sha256", ""):
         return False
 
     try:
@@ -46,7 +49,7 @@ def download_update_exe(update_info):
                 f.write(chunk)
 
     try:
-        validate_downloaded_exe(target_path)
+        validate_downloaded_exe(target_path, update_info.asset_sha256)
     except Exception:
         try:
             target_path.unlink()
@@ -57,13 +60,29 @@ def download_update_exe(update_info):
     return target_path
 
 
-def validate_downloaded_exe(path):
+def validate_downloaded_exe(path, expected_sha256=None):
     if path.stat().st_size == 0:
         raise RuntimeError("ダウンロードした更新ファイルが空です。")
 
     with open(path, "rb") as f:
         if f.read(2) != b"MZ":
             raise RuntimeError("ダウンロードした更新ファイルがexe形式ではありません。")
+
+    if expected_sha256:
+        actual_sha256 = calculate_sha256(path)
+        if actual_sha256.lower() != expected_sha256.lower():
+            raise RuntimeError("ダウンロードした更新ファイルのSHA-256が一致しません。")
+
+
+def calculate_sha256(path):
+    hash_obj = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1024 * 1024)
+            if not chunk:
+                break
+            hash_obj.update(chunk)
+    return hash_obj.hexdigest()
 
 
 def launch_update_installer(downloaded_exe):
