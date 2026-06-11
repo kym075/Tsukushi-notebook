@@ -4,7 +4,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 
 FONT_COLORS = {
     "default": {
