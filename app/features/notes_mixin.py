@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 import shutil
 import uuid
 import tkinter as tk
@@ -76,6 +77,18 @@ class NotesMixin:
             return note.get("created_at") or note.get("updated_at") or ""
         return note.get("updated_at") or note.get("created_at") or ""
 
+    def natural_title_key(self, note):
+        title = self.note_display_title(note).casefold()
+        parts = []
+        for part in re.split(r"(\d+)", title):
+            if not part:
+                continue
+            if part.isdecimal():
+                parts.append((0, int(part), part))
+            else:
+                parts.append((1, part, ""))
+        return tuple(parts)
+
     def get_filtered_notes(self):
         return [
             note for note in self.data["notes"]
@@ -85,7 +98,7 @@ class NotesMixin:
     def sort_notes(self, notes):
         sorted_notes = sorted(
             notes,
-            key=lambda note: (self.note_display_title(note).casefold(), self.note_timestamp(note, "created_at"), note.get("id", ""))
+            key=lambda note: (self.natural_title_key(note), self.note_timestamp(note, "created_at"), note.get("id", ""))
         )
 
         sort_mode = self.note_sort_var.get()
