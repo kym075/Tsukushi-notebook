@@ -51,7 +51,7 @@ class EditorMixin:
             font=app_font(
                 size=self.active_typing_size,
                 weight=weight,
-                underline=self.active_typing_underline,
+                underline=False,
             ),
             text_color=default_text_hex,
         )
@@ -78,13 +78,13 @@ class EditorMixin:
             scaled_font = self.scaled_editor_font(
                 size=self.active_typing_size,
                 weight=weight,
-                underline=self.active_typing_underline,
+                underline=False,
             )
 
             logfont = LOGFONTW()
             logfont.lfHeight = int(scaled_font[1])
             logfont.lfWeight = 700 if weight == "bold" else 400
-            logfont.lfUnderline = 1 if self.active_typing_underline else 0
+            logfont.lfUnderline = 0
             logfont.lfCharSet = 1
             logfont.lfQuality = 5
             logfont.lfFaceName = str(scaled_font[0])[:31]
@@ -571,14 +571,19 @@ class EditorMixin:
             if text_widget.compare(start_idx, ">", end_idx):
                 start_idx, end_idx = end_idx, start_idx
 
-            self.apply_text_style_range(
+            for range_start, range_end in self.text_style_target_ranges(
                 start_idx,
                 end_idx,
-                color=self.active_typing_color,
-                size=self.active_typing_size,
-                bold=self.active_typing_bold,
                 underline=self.active_typing_underline,
-            )
+            ):
+                self.apply_text_style_range(
+                    range_start,
+                    range_end,
+                    color=self.active_typing_color,
+                    size=self.active_typing_size,
+                    bold=self.active_typing_bold,
+                    underline=self.active_typing_underline,
+                )
         except Exception as e:
             log_error("タイピングフォーマット適用に失敗しました。", e)
 
