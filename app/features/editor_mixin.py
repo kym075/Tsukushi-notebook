@@ -43,8 +43,9 @@ class EditorMixin:
 
         weight = "bold" if self.active_typing_bold else "normal"
         mode = ctk.get_appearance_mode().lower()
-        color_config = FONT_COLORS.get(self.active_typing_color, FONT_COLORS["default"])
-        text_hex = color_config[mode]
+        default_text_hex = FONT_COLORS["default"][mode]
+        cursor_color_config = FONT_COLORS.get(self.active_typing_color, FONT_COLORS["default"])
+        cursor_hex = cursor_color_config[mode]
 
         self.editor.configure(
             font=app_font(
@@ -52,9 +53,9 @@ class EditorMixin:
                 weight=weight,
                 underline=self.active_typing_underline,
             ),
-            text_color=text_hex,
+            text_color=default_text_hex,
         )
-        self.editor._textbox.configure(insertbackground=text_hex)
+        self.editor._textbox.configure(insertbackground=cursor_hex)
         self.sync_windows_ime_font(weight)
 
     def sync_editor_cursor_color(self):
@@ -173,6 +174,51 @@ class EditorMixin:
 
         self.add_current_selection_to_multi_select()
         return None
+
+    def current_insert_line(self):
+        try:
+            return int(self.editor._textbox.index("insert").split(".")[0])
+        except (tk.TclError, ValueError):
+            return None
+
+    def color_is_locked(self):
+        color_var = getattr(self, "keep_typing_color_var", None)
+        return bool(color_var and color_var.get())
+
+    def remember_temporary_color_line(self):
+        self.temporary_typing_color_line = self.current_insert_line()
+
+    def clear_temporary_color_line(self):
+        self.temporary_typing_color_line = None
+
+    def on_keep_typing_color_changed(self):
+        if self.color_is_locked() or self.active_typing_color == "default":
+            self.clear_temporary_color_line()
+            return
+        self.remember_temporary_color_line()
+
+    def reset_temporary_color_on_cursor_move(self, _event=None):
+        self.after_idle(self.apply_temporary_color_reset_if_needed)
+        return None
+
+    def apply_temporary_color_reset_if_needed(self):
+        if self.color_is_locked():
+            return
+        if self.active_typing_color == "default":
+            self.clear_temporary_color_line()
+            return
+
+        color_line = getattr(self, "temporary_typing_color_line", None)
+        current_line = self.current_insert_line()
+        if color_line is None or current_line is None:
+            return
+        if current_line != color_line:
+            self.reset_typing_color_to_default()
+
+    def reset_typing_color_to_default(self):
+        self.active_typing_color = "default"
+        self.clear_temporary_color_line()
+        self.sync_editor_input_style()
 
     def text_index_at_event(self, event):
         return self.editor._textbox.index(f"@{event.x},{event.y}")
@@ -294,10 +340,45 @@ class EditorMixin:
             return False
 
         for start, end in ranges:
-            self.apply_text_style_range(start, end, color=color, size=size, bold=bold, underline=underline)
+            for range_start, range_end in self.text_style_target_ranges(start, end, underline=underline):
+                self.apply_text_style_range(range_start, range_end, color=color, size=size, bold=bold, underline=underline)
 
         self.trigger_auto_save()
         return True
+
+    def text_style_target_ranges(self, start, end, underline=None):
+        text_widget = self.editor._textbox
+        if underline is not True:
+            return [(start, end)]
+
+        target_ranges = []
+        start_line = int(start.split(".")[0])
+        end_line = int(end.split(".")[0])
+
+        for line in range(start_line, end_line + 1):
+            line_start = f"{line}.0"
+            line_end = f"{line}.end"
+            range_start = start if line == start_line else line_start
+            range_end = end if line == end_line else line_end
+
+            if text_widget.compare(range_start, ">=", range_end):
+                continue
+            if text_widget.compare(range_start, "==", line_start):
+                range_start = self.skip_line_indent(range_start, range_end)
+            if text_widget.compare(range_start, "<", range_end):
+                target_ranges.append((text_widget.index(range_start), text_widget.index(range_end)))
+
+        return target_ranges
+
+    def skip_line_indent(self, start, end):
+        text_widget = self.editor._textbox
+        current = start
+        while text_widget.compare(current, "<", end):
+            char = text_widget.get(current, f"{current} + 1c")
+            if char not in (" ", "\t", "\u3000"):
+                break
+            current = text_widget.index(f"{current} + 1c")
+        return current
 
     def selected_block_lines(self):
         text_widget = self.editor._textbox
@@ -561,13 +642,18 @@ class EditorMixin:
 
     def reset_new_block_to_body(self):
         body_style = BLOCK_STYLES[DEFAULT_BLOCK_STYLE_LABEL]
-        self.set_active_typing_style(size=body_style["size"], bold=body_style["bold"])
+        self.set_active_typing_style(size=body_style["size"], bold=body_style["bold"], underline=False)
+        self.reset_temporary_color_on_cursor_move()
 
     def change_typing_color(self, color_key):
         if self.apply_text_style_to_selected_ranges(color=color_key):
             return
 
         self.active_typing_color = color_key
+        if color_key == "default" or self.color_is_locked():
+            self.clear_temporary_color_line()
+        else:
+            self.remember_temporary_color_line()
         self.sync_editor_cursor_color()
 
     def toggle_typing_bold(self):

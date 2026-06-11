@@ -52,6 +52,8 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.active_typing_size = DEFAULT_FONT_SIZE
         self.active_typing_bold = False
         self.active_typing_underline = False
+        self.temporary_typing_color_line = None
+        self.keep_typing_color_var = tk.BooleanVar(value=False)
 
         # ウィンドウの基本設定
         self.title("つくしノート")
@@ -291,6 +293,16 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
             btn.pack(side="left", padx=3)
             self.color_buttons[key] = btn
 
+        self.keep_color_checkbox = ctk.CTkCheckBox(
+            toolbar,
+            text="色固定",
+            variable=self.keep_typing_color_var,
+            font=app_font(size=12),
+            width=70,
+            command=self.on_keep_typing_color_changed,
+        )
+        self.keep_color_checkbox.pack(side="left", padx=(8, 0))
+
         self.ai_quiz_btn = ctk.CTkButton(toolbar, text="🧠 AIクイズ", width=90, fg_color="#8a2be2", hover_color="#6a1b9a", font=app_font(weight="bold"), command=self.start_ai_quiz)
         self.ai_quiz_btn.pack(side="right", padx=5)
 
@@ -342,6 +354,8 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.editor._textbox.bind("<FocusIn>", lambda _event: self.sync_editor_input_style(), add="+")
         self.editor._textbox.bind("<ButtonRelease-1>", self.move_insert_out_of_image_marker, add="+")
         self.editor._textbox.bind("<KeyRelease>", self.move_insert_out_of_image_marker, add="+")
+        self.editor._textbox.bind("<ButtonRelease-1>", self.reset_temporary_color_on_cursor_move, add="+")
+        self.editor._textbox.bind("<KeyRelease>", self.reset_temporary_color_on_cursor_move, add="+")
 
     def apply_app_fonts(self, widget):
         """フォント未指定のCustomTkinterウィジェットにもアプリ標準フォントを適用する"""
