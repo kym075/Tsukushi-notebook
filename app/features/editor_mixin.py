@@ -150,6 +150,9 @@ class EditorMixin:
         if color is not None:
             self.active_typing_color = color
 
+        if bold is not None or underline is not None:
+            self.update_temporary_style_line()
+
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()
@@ -159,6 +162,7 @@ class EditorMixin:
             if config["size"] == self.active_typing_size and config["bold"] == self.active_typing_bold:
                 self.block_style_var.set(label)
                 return
+        self.block_style_var.set(DEFAULT_BLOCK_STYLE_LABEL)
 
     def is_control_pressed(self, event):
         return bool(getattr(event, "state", 0) & 0x0004)
@@ -191,6 +195,18 @@ class EditorMixin:
     def clear_temporary_color_line(self):
         self.temporary_typing_color_line = None
 
+    def remember_temporary_style_line(self):
+        self.temporary_typing_style_line = self.current_insert_line()
+
+    def clear_temporary_style_line(self):
+        self.temporary_typing_style_line = None
+
+    def update_temporary_style_line(self):
+        if self.active_typing_bold or self.active_typing_underline:
+            self.remember_temporary_style_line()
+        else:
+            self.clear_temporary_style_line()
+
     def on_keep_typing_color_changed(self):
         if self.color_is_locked() or self.active_typing_color == "default":
             self.clear_temporary_color_line()
@@ -198,8 +214,12 @@ class EditorMixin:
         self.remember_temporary_color_line()
 
     def reset_temporary_color_on_cursor_move(self, _event=None):
-        self.after_idle(self.apply_temporary_color_reset_if_needed)
+        self.after_idle(self.apply_temporary_typing_reset_if_needed)
         return None
+
+    def apply_temporary_typing_reset_if_needed(self):
+        self.apply_temporary_color_reset_if_needed()
+        self.apply_temporary_style_reset_if_needed()
 
     def apply_temporary_color_reset_if_needed(self):
         if self.color_is_locked():
@@ -215,9 +235,32 @@ class EditorMixin:
         if current_line != color_line:
             self.reset_typing_color_to_default()
 
+    def apply_temporary_style_reset_if_needed(self):
+        if not self.active_typing_bold and not self.active_typing_underline:
+            self.clear_temporary_style_line()
+            return
+
+        style_line = getattr(self, "temporary_typing_style_line", None)
+        current_line = self.current_insert_line()
+        if current_line is None:
+            return
+        if style_line is None:
+            self.remember_temporary_style_line()
+            return
+        if current_line != style_line:
+            self.reset_typing_emphasis_to_default()
+
     def reset_typing_color_to_default(self):
         self.active_typing_color = "default"
         self.clear_temporary_color_line()
+        self.sync_editor_input_style()
+
+    def reset_typing_emphasis_to_default(self):
+        self.active_typing_bold = False
+        self.active_typing_underline = False
+        self.clear_temporary_style_line()
+        self.update_block_style_label()
+        self.update_style_buttons()
         self.sync_editor_input_style()
 
     def text_index_at_event(self, event):
@@ -658,6 +701,7 @@ class EditorMixin:
 
     def toggle_typing_bold(self):
         self.active_typing_bold = not self.active_typing_bold
+        self.update_temporary_style_line()
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()
@@ -665,6 +709,7 @@ class EditorMixin:
 
     def toggle_typing_underline(self):
         self.active_typing_underline = not self.active_typing_underline
+        self.update_temporary_style_line()
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()

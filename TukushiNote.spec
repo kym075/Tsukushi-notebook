@@ -4,7 +4,7 @@ a = Analysis(
     ["main.py"],
     pathex=[],
     binaries=[],
-    datas=[("app_icon.ico", ".")],
+    datas=[("app_icon.ico", "."), ("notes.json.sample", ".")],
     hiddenimports=[
         "google.generativeai",
         "google.ai.generativelanguage",

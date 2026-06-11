@@ -1,9 +1,8 @@
-import os
 import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
 from app.core.app_logger import log_error
-from app.core.data import IMAGES_DIR, consume_load_warning, load_data
+from app.core.data import consume_load_warning, ensure_data_location, load_data
 from app.features.editor_mixin import EditorMixin
 from app.features.notes_mixin import NotesMixin
 from app.features.settings_mixin import SettingsMixin
@@ -27,9 +26,8 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        # 必要なフォルダの作成
-        if not os.path.exists(IMAGES_DIR):
-            os.makedirs(IMAGES_DIR)
+        # 必要なフォルダの作成と旧保存先からの移行
+        ensure_data_location()
 
         # データの初期ロード
         self.data = load_data()
@@ -53,6 +51,7 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.active_typing_bold = False
         self.active_typing_underline = False
         self.temporary_typing_color_line = None
+        self.temporary_typing_style_line = None
         self.keep_typing_color_var = tk.BooleanVar(value=False)
 
         # ウィンドウの基本設定

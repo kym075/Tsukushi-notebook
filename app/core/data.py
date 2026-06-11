@@ -1,23 +1,16 @@
 import os
 import json
 import shutil
-import sys
 import datetime
 from pathlib import Path
 from app.core.app_logger import log_error
-
-
-def get_app_dir():
-    """ソース実行時はプロジェクト直下、exe実行時はexeのあるフォルダを返す"""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
+from app.core.paths import get_app_dir, get_legacy_app_dir, get_sample_data_file
 
 
 # アプリの保存用フォルダ・ファイル名
 APP_DIR = get_app_dir()
 DATA_FILE = str(APP_DIR / "notes.json")
-SAMPLE_DATA_FILE = str(APP_DIR / "notes.json.sample")
+SAMPLE_DATA_FILE = str(get_sample_data_file())
 IMAGES_DIR = str(APP_DIR / "images")
 _last_load_warning = None
 
@@ -70,6 +63,56 @@ def normalize_data(data):
 def load_json_file(path):
     with open(path, "r", encoding="utf-8") as f:
         return normalize_data(json.load(f))
+
+
+def ensure_data_location():
+    """保存先を作成し、旧exe横データがあれば初回だけAppDataへコピーする。"""
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    Path(IMAGES_DIR).mkdir(parents=True, exist_ok=True)
+    migrate_legacy_data_if_needed()
+
+
+def migrate_legacy_data_if_needed():
+    legacy_dir = get_legacy_app_dir()
+    if legacy_dir is None:
+        return
+
+    source_data = legacy_dir / "notes.json"
+    target_data = Path(DATA_FILE)
+    if target_data.exists() or not source_data.exists():
+        return
+
+    try:
+        shutil.copy2(source_data, target_data)
+    except Exception as e:
+        log_error("旧データのAppData移行に失敗しました。", e)
+        return
+
+    try:
+        copy_legacy_images(legacy_dir / "images", Path(IMAGES_DIR))
+    except Exception as e:
+        log_error("旧画像データのAppData移行に失敗しました。", e)
+
+    set_load_warning(
+        "以前の保存データをAppDataに移行しました。\n\n"
+        f"新しい保存先:\n{APP_DIR}\n\n"
+        f"元のデータは削除せず、次の場所に残しています:\n{legacy_dir}"
+    )
+
+
+def copy_legacy_images(source_dir, target_dir):
+    if not source_dir.is_dir():
+        return
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for item in source_dir.iterdir():
+        if not item.is_file():
+            continue
+
+        target_path = target_dir / item.name
+        if target_path.exists():
+            continue
+        shutil.copy2(item, target_path)
 
 
 def backup_broken_data_file():
@@ -134,6 +177,7 @@ def save_data(data):
     """データを notes.json に保存する。途中失敗で壊れにくいよう一時ファイル経由で置き換える。"""
     temp_file = f"{DATA_FILE}.tmp"
     try:
+        APP_DIR.mkdir(parents=True, exist_ok=True)
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(temp_file, DATA_FILE)

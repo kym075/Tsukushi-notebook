@@ -40,9 +40,17 @@ python main.py
 
 GitHub Releases から `TukushiNote.exe` をダウンロードして起動できます。
 
-exe版では、ノートデータはexeと同じフォルダの `notes.json` に保存され、挿入画像は同じフォルダの `images` に保存されます。`notes.json` にはGemini APIキーも保存されるため、GitHubには公開しないでください。
+exe版では、ノートデータはユーザーごとのAppDataに保存されます。Windowsでは通常、次の場所です。
 
-自動アップデートは現在のexeを同じ場所で置き換えるため、同じフォルダにある `notes.json` と `images` はそのまま残ります。手動で新しいexeを別フォルダに置いて起動した場合は、元のフォルダから `notes.json` と `images` を移してください。
+```text
+C:\Users\ユーザー名\AppData\Roaming\TukushiNote
+```
+
+この中の `notes.json` にノートやGemini APIキーが保存され、`images` フォルダに挿入画像が保存されます。エラーログの `app.log` も同じ場所に保存されます。
+
+旧バージョンでexeと同じフォルダに `notes.json` と `images` がある場合は、新バージョンの初回起動時にAppDataへコピーされます。元のファイルは削除せず、そのまま残します。
+
+自動アップデートは現在のexeを同じ場所で置き換えます。ノートデータはAppData側に保存されるため、exeの場所が変わっても同じデータを使えます。
 
 更新通知の「あとで」は、チェックを入れた場合だけ同じバージョンの通知を24時間表示しません。チェックを入れない場合は、次回起動時にも通知されます。
 
