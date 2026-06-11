@@ -258,11 +258,12 @@ class NotesMixin:
     def apply_note_font_color(self, color_key):
         """現在のアクティブなノートに設定された文字色をエディタに適用する"""
         mode = ctk.get_appearance_mode().lower()
-        color_config = FONT_COLORS.get(color_key, FONT_COLORS["default"])
-        text_hex = color_config[mode]
-        self.editor.configure(text_color=text_hex)
-        self.title_entry.configure(text_color=text_hex)
-        self.editor._textbox.configure(insertbackground=text_hex)
+        default_text_hex = FONT_COLORS["default"][mode]
+        cursor_color_config = FONT_COLORS.get(color_key, FONT_COLORS["default"])
+        cursor_hex = cursor_color_config[mode]
+        self.editor.configure(text_color=default_text_hex)
+        self.title_entry.configure(text_color=cursor_hex)
+        self.editor._textbox.configure(insertbackground=cursor_hex)
 
     # ------------------------------------------
     # 自動保存 ＆ 削除
