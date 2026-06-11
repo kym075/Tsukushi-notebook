@@ -1,16 +1,10 @@
 import datetime
-import sys
 import traceback
-from pathlib import Path
+
+from app.core.paths import get_app_dir
 
 
-def get_log_dir():
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
-
-
-LOG_FILE = get_log_dir() / "app.log"
+LOG_FILE = get_app_dir() / "app.log"
 
 
 def log_error(message, exc=None):
@@ -20,6 +14,7 @@ def log_error(message, exc=None):
         lines.extend(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
     try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write("\n".join(line.rstrip() for line in lines))
             f.write("\n\n")

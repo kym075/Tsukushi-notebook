@@ -238,6 +238,8 @@ class NotesMixin:
         self.active_typing_color = initial_color
         self.active_typing_bold = initial_bold
         self.active_typing_underline = initial_underline
+        self.clear_temporary_color_line()
+        self.clear_temporary_style_line()
         self.update_block_style_label()
         self.update_style_buttons()
 
