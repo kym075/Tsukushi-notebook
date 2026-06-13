@@ -422,6 +422,7 @@ class NotesMixin:
         save_data(self.data)
 
         self.select_note(new_id)
+        self.title_entry.focus_set()
 
     def delete_current_note(self):
         if not self.current_note_id:

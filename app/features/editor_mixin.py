@@ -11,6 +11,22 @@ from app.core.ui_config import BLOCK_STYLES, DEFAULT_BLOCK_STYLE_LABEL, DEFAULT_
 
 
 class EditorMixin:
+    MAX_EDITOR_HISTORY = 100
+
+    BRACKET_PAIRS = {
+        "(": ")",
+        "（": "）",
+        "[": "]",
+        "［": "］",
+        "{": "}",
+        "｛": "｝",
+        "「": "」",
+        "『": "』",
+        "【": "】",
+        "“": "”",
+        "\"": "\"",
+    }
+
     def configure_formatting_tags(self):
         """文字色とフォントサイズ用の全タグの配色とフォントを現在のテーマに合わせて動的適用する"""
         text_widget = self.editor._textbox
@@ -158,16 +174,66 @@ class EditorMixin:
         self.sync_editor_input_style()
 
     def update_block_style_label(self):
+        self.block_style_var.set(self.block_style_label_for(self.active_typing_size, self.active_typing_bold))
+
+    def block_style_label_for(self, size, bold=False):
         for label, config in BLOCK_STYLES.items():
-            if config["size"] == self.active_typing_size and config["bold"] == self.active_typing_bold:
-                self.block_style_var.set(label)
-                return
-        self.block_style_var.set(DEFAULT_BLOCK_STYLE_LABEL)
+            if config["size"] == size and config["bold"] == bool(bold):
+                return label
+
+        if size == BLOCK_STYLES[DEFAULT_BLOCK_STYLE_LABEL]["size"]:
+            return DEFAULT_BLOCK_STYLE_LABEL
+
+        for label, config in BLOCK_STYLES.items():
+            if config["size"] == size:
+                return label
+
+        return DEFAULT_BLOCK_STYLE_LABEL
+
+    def style_probe_index_at_insert(self):
+        text_widget = self.editor._textbox
+        try:
+            insert = text_widget.index("insert")
+            column = int(insert.split(".")[1])
+            if text_widget.compare(insert, "<", "end-1c"):
+                char = text_widget.get(insert, f"{insert} + 1c")
+                if char != "\n":
+                    return insert
+            if column == 0:
+                return None
+            if text_widget.compare(insert, ">", "1.0"):
+                return text_widget.index(f"{insert} - 1c")
+        except (tk.TclError, ValueError):
+            return None
+
+        return None
+
+    def refresh_current_style_display(self):
+        probe_index = self.style_probe_index_at_insert()
+        if probe_index is None:
+            body_style = BLOCK_STYLES[DEFAULT_BLOCK_STYLE_LABEL]
+            self.active_typing_size = body_style["size"]
+            self.active_typing_bold = body_style["bold"]
+            self.active_typing_underline = False
+            self.block_style_var.set(DEFAULT_BLOCK_STYLE_LABEL)
+            self.update_style_buttons()
+            self.sync_editor_input_style()
+            return
+
+        _, size, bold, underline = self.get_text_style_at(probe_index)
+        self.block_style_var.set(self.block_style_label_for(size, bold))
+        self.active_typing_size = size
+        self.active_typing_bold = bold
+        self.active_typing_underline = underline
+        self.update_style_buttons()
+        self.sync_editor_input_style()
 
     def is_control_pressed(self, event):
         return bool(getattr(event, "state", 0) & 0x0004)
 
     def on_editor_button_press(self, event):
+        if self.select_line_if_margin_clicked(event):
+            return "break"
         if not self.is_control_pressed(event):
             self.clear_multi_select_ranges()
         return None
@@ -220,6 +286,7 @@ class EditorMixin:
     def apply_temporary_typing_reset_if_needed(self):
         self.apply_temporary_color_reset_if_needed()
         self.apply_temporary_style_reset_if_needed()
+        self.refresh_current_style_display()
 
     def apply_temporary_color_reset_if_needed(self):
         if self.color_is_locked():
@@ -266,6 +333,33 @@ class EditorMixin:
     def text_index_at_event(self, event):
         return self.editor._textbox.index(f"@{event.x},{event.y}")
 
+    def line_range_at_event(self, event):
+        index = self.text_index_at_event(event)
+        line = index.split(".")[0]
+        return f"{line}.0", f"{line}.end"
+
+    def select_line_if_margin_clicked(self, event):
+        if getattr(event, "x", 999) > 8:
+            return False
+
+        text_widget = self.editor._textbox
+        try:
+            start, end = self.line_range_at_event(event)
+            text_widget.tag_remove("sel", "1.0", "end")
+
+            if self.is_control_pressed(event):
+                text_widget.tag_remove("multi_select_preview", "1.0", "end")
+                self.add_multi_select_range(start, end)
+            else:
+                self.clear_multi_select_ranges()
+                text_widget.tag_add("sel", start, end)
+
+            text_widget.mark_set("insert", end)
+            text_widget.focus_set()
+            return True
+        except tk.TclError:
+            return False
+
     def ordered_text_range(self, start, end):
         text_widget = self.editor._textbox
         if text_widget.compare(start, "==", end):
@@ -288,6 +382,15 @@ class EditorMixin:
         text_widget.tag_remove("multi_select_preview", "1.0", "end")
 
         try:
+            if getattr(event, "x", 999) <= 8:
+                start, end = self.line_range_at_event(event)
+                self.add_multi_select_range(start, end)
+                text_widget.tag_remove("sel", "1.0", "end")
+                self.multi_select_anchor = None
+                text_widget.mark_set("insert", end)
+                text_widget.focus_set()
+                return "break"
+
             self.multi_select_anchor = self.text_index_at_event(event)
             text_widget.mark_set("insert", self.multi_select_anchor)
         except tk.TclError:
@@ -377,17 +480,55 @@ class EditorMixin:
 
         return normalized_ranges
 
-    def apply_text_style_to_selected_ranges(self, color=None, size=None, bold=None, underline=None):
+    def apply_text_style_to_selected_ranges(self, color=None, size=None, bold=None, underline=None, before_state=None):
         ranges = self.selected_text_ranges()
         if not ranges:
             return False
 
+        target_ranges = []
         for start, end in ranges:
-            for range_start, range_end in self.text_style_target_ranges(start, end, underline=underline):
-                self.apply_text_style_range(range_start, range_end, color=color, size=size, bold=bold, underline=underline)
+            target_ranges.extend(self.text_style_target_ranges(start, end, underline=underline))
+        target_ranges = self.normalized_text_ranges(target_ranges)
+        if not target_ranges:
+            return True
 
-        self.trigger_auto_save()
+        before_state = before_state or self.capture_active_typing_state()
+        before_snapshot = self.capture_style_snapshot(target_ranges)
+        for range_start, range_end in target_ranges:
+            self.apply_text_style_range(range_start, range_end, color=color, size=size, bold=bold, underline=underline)
+        after_snapshot = self.capture_style_snapshot(target_ranges)
+        after_state = self.capture_active_typing_state()
+
+        if self.record_style_history(before_snapshot, after_snapshot, before_state, after_state):
+            self.trigger_auto_save()
         return True
+
+    def current_block_style_target_ranges(self):
+        start_line, end_line = self.selected_block_lines()
+        ranges = []
+        for line in range(start_line, end_line + 1):
+            line_start = f"{line}.0"
+            line_end = f"{line}.end"
+            try:
+                if self.editor._textbox.compare(line_start, "!=", line_end):
+                    ranges.append((line_start, line_end))
+            except tk.TclError:
+                continue
+        return self.normalized_text_ranges(ranges)
+
+    def apply_style_operation_to_ranges(self, ranges, apply_callback, before_state=None):
+        target_ranges = self.normalized_text_ranges(ranges)
+        before_state = before_state or self.capture_active_typing_state()
+        before_snapshot = self.capture_style_snapshot(target_ranges)
+
+        apply_callback(target_ranges)
+
+        after_snapshot = self.capture_style_snapshot(target_ranges)
+        after_state = self.capture_active_typing_state()
+        changed = self.record_style_history(before_snapshot, after_snapshot, before_state, after_state)
+        if changed:
+            self.trigger_auto_save()
+        return changed
 
     def text_style_target_ranges(self, start, end, underline=None):
         text_widget = self.editor._textbox
@@ -423,6 +564,246 @@ class EditorMixin:
             current = text_widget.index(f"{current} + 1c")
         return current
 
+    def ensure_editor_history_state(self):
+        if not hasattr(self, "editor_undo_stack"):
+            self.editor_undo_stack = []
+        if not hasattr(self, "editor_redo_stack"):
+            self.editor_redo_stack = []
+        if not hasattr(self, "suppress_editor_history"):
+            self.suppress_editor_history = False
+
+    def record_editor_history(self, entry):
+        self.ensure_editor_history_state()
+        if self.suppress_editor_history:
+            return
+        self.editor_undo_stack.append(entry)
+        if len(self.editor_undo_stack) > self.MAX_EDITOR_HISTORY:
+            del self.editor_undo_stack[:len(self.editor_undo_stack) - self.MAX_EDITOR_HISTORY]
+        self.editor_redo_stack.clear()
+
+    def mark_undo_separator(self, record_text_history=True):
+        try:
+            self.editor._textbox.edit_separator()
+        except tk.TclError:
+            pass
+
+        if record_text_history:
+            self.record_editor_history({"type": "text"})
+
+    def reset_editor_undo_history(self):
+        try:
+            self.editor._textbox.edit_reset()
+        except tk.TclError:
+            pass
+        self.ensure_editor_history_state()
+        self.editor_undo_stack.clear()
+        self.editor_redo_stack.clear()
+
+    def capture_active_typing_state(self):
+        return {
+            "color": self.active_typing_color,
+            "size": self.active_typing_size,
+            "bold": self.active_typing_bold,
+            "underline": self.active_typing_underline,
+        }
+
+    def restore_active_typing_state(self, state):
+        self.active_typing_color = state.get("color", "default")
+        self.active_typing_size = int(state.get("size", DEFAULT_FONT_SIZE))
+        self.active_typing_bold = bool(state.get("bold", False))
+        self.active_typing_underline = bool(state.get("underline", False))
+        self.update_block_style_label()
+        self.update_style_buttons()
+        self.sync_editor_input_style()
+
+    def normalized_text_ranges(self, ranges):
+        text_widget = self.editor._textbox
+        normalized = []
+        for start, end in ranges:
+            try:
+                if text_widget.compare(start, "==", end):
+                    continue
+                if text_widget.compare(start, ">", end):
+                    start, end = end, start
+                normalized.append((text_widget.index(start), text_widget.index(end)))
+            except tk.TclError:
+                continue
+
+        def sort_key(item):
+            count_result = text_widget.count("1.0", item[0], "chars")
+            return count_result[0] if count_result else 0
+
+        normalized.sort(key=sort_key)
+        merged = []
+        for start, end in normalized:
+            if not merged:
+                merged.append([start, end])
+                continue
+            prev_start, prev_end = merged[-1]
+            if text_widget.compare(start, "<=", prev_end):
+                if text_widget.compare(end, ">", prev_end):
+                    merged[-1][1] = end
+            else:
+                merged.append([start, end])
+
+        return [(start, end) for start, end in merged]
+
+    def capture_style_snapshot(self, ranges):
+        text_widget = self.editor._textbox
+        snapshot = []
+        for start, end in self.normalized_text_ranges(ranges):
+            count_result = text_widget.count(start, end, "chars")
+            char_count = count_result[0] if count_result else 0
+            if char_count <= 0:
+                continue
+
+            segments = []
+            segment_start = start
+            previous_style = None
+            for i in range(char_count):
+                char_idx = text_widget.index(f"{start} + {i} chars")
+                style = self.get_text_style_at(char_idx)
+                if previous_style is None:
+                    previous_style = style
+                elif style != previous_style:
+                    segment_end = text_widget.index(f"{start} + {i} chars")
+                    segments.append({
+                        "start": text_widget.index(segment_start),
+                        "end": text_widget.index(segment_end),
+                        "style": previous_style,
+                    })
+                    segment_start = segment_end
+                    previous_style = style
+
+            segments.append({
+                "start": text_widget.index(segment_start),
+                "end": text_widget.index(end),
+                "style": previous_style,
+            })
+            snapshot.append({"start": start, "end": end, "segments": segments})
+
+        return snapshot
+
+    def style_snapshot_equal(self, left, right):
+        return left == right
+
+    def restore_style_snapshot(self, snapshot):
+        previous_suppress = getattr(self, "suppress_editor_history", False)
+        self.suppress_editor_history = True
+        try:
+            for item in snapshot:
+                start = item["start"]
+                end = item["end"]
+                for color_key in FONT_COLORS.keys():
+                    self.editor._textbox.tag_remove(f"color_{color_key}", start, end)
+                for font_size in FONT_SIZE_VALUES:
+                    self.editor._textbox.tag_remove(self.font_tag_name(font_size, False), start, end)
+                    self.editor._textbox.tag_remove(self.font_tag_name(font_size, True), start, end)
+                self.editor._textbox.tag_remove("underline", start, end)
+
+                for segment in item["segments"]:
+                    color, size, bold, underline = segment["style"]
+                    self.editor._textbox.tag_add(f"color_{color}", segment["start"], segment["end"])
+                    self.editor._textbox.tag_add(self.font_tag_name(size, bold), segment["start"], segment["end"])
+                    if underline:
+                        self.editor._textbox.tag_add("underline", segment["start"], segment["end"])
+        finally:
+            self.suppress_editor_history = previous_suppress
+
+    def record_style_history(self, before_snapshot, after_snapshot, before_state, after_state):
+        if self.style_snapshot_equal(before_snapshot, after_snapshot) and before_state == after_state:
+            return False
+
+        self.record_editor_history({
+            "type": "style",
+            "before": before_snapshot,
+            "after": after_snapshot,
+            "before_state": before_state,
+            "after_state": after_state,
+        })
+        return True
+
+    def track_native_text_edit(self, _event=None):
+        if getattr(self, "suppress_editor_history", False):
+            return None
+        if getattr(self, "pending_native_text_edit_snapshot", None) is not None:
+            return None
+
+        try:
+            text_widget = self.editor._textbox
+            self.pending_native_text_edit_snapshot = text_widget.get("1.0", "end-1c")
+            text_widget.edit_separator()
+            self.after_idle(self.finish_native_text_edit_tracking)
+        except tk.TclError:
+            self.pending_native_text_edit_snapshot = None
+        return None
+
+    def finish_native_text_edit_tracking(self):
+        before_text = getattr(self, "pending_native_text_edit_snapshot", None)
+        self.pending_native_text_edit_snapshot = None
+        if before_text is None:
+            return
+
+        try:
+            after_text = self.editor._textbox.get("1.0", "end-1c")
+        except tk.TclError:
+            return
+
+        if before_text != after_text:
+            self.mark_undo_separator()
+
+    def insert_text_with_active_style(self, text):
+        text_widget = self.editor._textbox
+        start = text_widget.index("insert")
+        text_widget.insert("insert", text)
+        end = text_widget.index("insert")
+
+        for range_start, range_end in self.text_style_target_ranges(start, end, underline=self.active_typing_underline):
+            self.apply_text_style_range(
+                range_start,
+                range_end,
+                color=self.active_typing_color,
+                size=self.active_typing_size,
+                bold=self.active_typing_bold,
+                underline=self.active_typing_underline,
+            )
+
+        self.mark_undo_separator()
+        self.trigger_auto_save()
+        return start, end
+
+    def line_bullet_prefix_before_insert(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert")
+        indent = line_text[:len(line_text) - len(line_text.lstrip(" \t\u3000"))]
+        rest = line_text[len(indent):]
+        if not rest.startswith("・"):
+            return None
+
+        after_bullet = rest[1:]
+        spaces = after_bullet[:len(after_bullet) - len(after_bullet.lstrip(" \t\u3000"))]
+        return f"{indent}・{spaces or ' '}"
+
+    def current_line_has_only_bullet(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert lineend")
+        return line_text.strip(" \t\u3000") == "・"
+
+    def insert_new_line_like_return(self):
+        text_widget = self.editor._textbox
+        bullet_prefix = self.line_bullet_prefix_before_insert()
+
+        if bullet_prefix and self.current_line_has_only_bullet():
+            text_widget.delete("insert linestart", "insert lineend")
+            self.insert_text_with_active_style("\n")
+        elif bullet_prefix:
+            self.insert_text_with_active_style(f"\n{bullet_prefix}")
+        else:
+            self.insert_text_with_active_style("\n")
+
+        self.after_idle(self.reset_new_block_to_body)
+        return "break"
+
     def selected_block_lines(self):
         text_widget = self.editor._textbox
         try:
@@ -442,41 +823,77 @@ class EditorMixin:
             end_line -= 1
         return start_line, end_line
 
-    def apply_block_style_to_lines(self, start_line, end_line, size=None, bold=None):
-        text_widget = self.editor._textbox
-        for line in range(start_line, end_line + 1):
-            line_start = f"{line}.0"
-            line_end = f"{line}.end"
-            if text_widget.compare(line_start, "!=", line_end):
-                self.apply_text_style_range(line_start, line_end, size=size, bold=bold)
-
-    def apply_block_style_to_current_blocks(self, size=None, bold=None):
-        selected_ranges = self.selected_text_ranges()
-        if not selected_ranges:
-            start_line, end_line = self.selected_block_lines()
-            self.apply_block_style_to_lines(start_line, end_line, size=size, bold=bold)
-            return
-
-        handled_lines = set()
-        for start, end in selected_ranges:
-            start_line = int(start.split(".")[0])
-            end_line = int(end.split(".")[0])
-            if self.editor._textbox.compare(end, "==", f"{end_line}.0") and end_line > start_line:
-                end_line -= 1
-            for line in range(start_line, end_line + 1):
-                if line in handled_lines:
-                    continue
-                handled_lines.add(line)
-                self.apply_block_style_to_lines(line, line, size=size, bold=bold)
-
     def on_block_style_changed(self, style_label):
         if style_label not in BLOCK_STYLES:
             return
 
+        before_state = self.capture_active_typing_state()
         config = BLOCK_STYLES[style_label]
         self.set_active_typing_style(size=config["size"], bold=config["bold"])
-        self.apply_block_style_to_current_blocks(size=config["size"], bold=config["bold"])
-        self.trigger_auto_save()
+        selected_ranges = self.selected_text_ranges()
+        if selected_ranges:
+            target_ranges = self.normalized_text_ranges(selected_ranges)
+
+            def apply_selected_style(resolved_ranges):
+                for start, end in resolved_ranges:
+                    self.apply_text_style_range(start, end, size=config["size"], bold=config["bold"])
+
+            self.apply_style_operation_to_ranges(target_ranges, apply_selected_style, before_state=before_state)
+            return
+
+        target_ranges = self.current_block_style_target_ranges()
+
+        def apply_block_style(resolved_ranges):
+            for start, end in resolved_ranges:
+                self.apply_text_style_range(start, end, size=config["size"], bold=config["bold"])
+
+        self.apply_style_operation_to_ranges(target_ranges, apply_block_style, before_state=before_state)
+
+    def handle_bracket_autocomplete(self, event):
+        char = getattr(event, "char", "")
+        if not char:
+            return None
+
+        text_widget = self.editor._textbox
+        closing_chars = set(self.BRACKET_PAIRS.values())
+        if char in closing_chars:
+            try:
+                next_char = text_widget.get("insert", "insert + 1c")
+                if next_char == char:
+                    text_widget.mark_set("insert", "insert + 1c")
+                    return "break"
+            except tk.TclError:
+                return None
+
+        closing_char = self.BRACKET_PAIRS.get(char)
+        if closing_char is None:
+            return None
+
+        try:
+            if text_widget.tag_ranges("sel"):
+                start = text_widget.index("sel.first")
+                end = text_widget.index("sel.last")
+                text_widget.tag_remove("sel", "1.0", "end")
+                text_widget.insert(end, closing_char)
+                text_widget.insert(start, char)
+                self.apply_text_style_range(
+                    start,
+                    f"{end} + 2c",
+                    color=self.active_typing_color,
+                    size=self.active_typing_size,
+                    bold=self.active_typing_bold,
+                    underline=self.active_typing_underline,
+                )
+                text_widget.mark_set("insert", f"{end} + 2c")
+                self.mark_undo_separator()
+                self.trigger_auto_save()
+                return "break"
+
+            self.insert_text_with_active_style(f"{char}{closing_char}")
+            text_widget.mark_set("insert", "insert - 1c")
+            return "break"
+        except tk.TclError:
+            return None
 
     def apply_text_style_range(self, start, end, color=None, size=None, bold=None, underline=None):
         text_widget = self.editor._textbox
@@ -529,6 +946,13 @@ class EditorMixin:
                 text_widget.tag_add("underline", segment_start, segment_end)
 
     def on_key_pressed(self, event):
+        bracket_result = self.handle_bracket_autocomplete(event)
+        if bracket_result:
+            return bracket_result
+
+        if getattr(event, "keysym", "") == "Return":
+            return None
+
         if event.char and (event.char.isprintable() or event.char in ("\r", "\n", "\t")):
             try:
                 text_widget = self.editor._textbox
@@ -584,6 +1008,7 @@ class EditorMixin:
                     bold=self.active_typing_bold,
                     underline=self.active_typing_underline,
                 )
+            self.mark_undo_separator()
         except Exception as e:
             log_error("タイピングフォーマット適用に失敗しました。", e)
 
@@ -673,6 +1098,7 @@ class EditorMixin:
 
         marker_range = self.image_marker_range_near_delete_cursor(event.keysym)
         if not marker_range:
+            self.track_native_text_edit()
             return None
 
         text_widget = self.editor._textbox
@@ -680,13 +1106,193 @@ class EditorMixin:
         try:
             text_widget.delete(block_start, block_end)
             text_widget.mark_set("insert", block_start)
+            self.mark_undo_separator()
             self.trigger_auto_save()
             return "break"
         except tk.TclError:
             return None
 
     def on_return_pressed(self, _event):
-        self.after_idle(self.reset_new_block_to_body)
+        return self.insert_new_line_like_return()
+
+    def on_down_pressed(self, _event):
+        text_widget = self.editor._textbox
+        try:
+            current_line = int(text_widget.index("insert").split(".")[0])
+            last_line = int(text_widget.index("end-1c").split(".")[0])
+        except (tk.TclError, ValueError):
+            return None
+
+        if current_line >= last_line:
+            return self.insert_new_line_like_return()
+        return None
+
+    def bind_editor_shortcuts(self):
+        shortcuts = {
+            "<Control-b>": self.shortcut_toggle_bold,
+            "<Control-B>": self.shortcut_toggle_bold,
+            "<Control-u>": self.shortcut_toggle_underline,
+            "<Control-U>": self.shortcut_toggle_underline,
+            "<Control-s>": self.shortcut_save_note,
+            "<Control-S>": self.shortcut_save_note,
+            "<Control-n>": self.shortcut_new_note,
+            "<Control-N>": self.shortcut_new_note,
+            "<Control-i>": self.shortcut_insert_image,
+            "<Control-I>": self.shortcut_insert_image,
+            "<Control-z>": self.shortcut_undo,
+            "<Control-Z>": self.shortcut_undo,
+            "<Control-y>": self.shortcut_redo,
+            "<Control-Y>": self.shortcut_redo,
+            "<Control-Shift-Z>": self.shortcut_redo,
+        }
+        for sequence, handler in shortcuts.items():
+            self.bind_all(sequence, handler)
+
+    def editor_has_focus(self):
+        try:
+            return self.focus_get() == self.editor._textbox
+        except tk.TclError:
+            return False
+
+    def shortcut_toggle_bold(self, _event=None):
+        if not self.editor_has_focus():
+            return None
+        self.toggle_typing_bold()
+        return "break"
+
+    def shortcut_toggle_underline(self, _event=None):
+        if not self.editor_has_focus():
+            return None
+        self.toggle_typing_underline()
+        return "break"
+
+    def shortcut_save_note(self, _event=None):
+        self.save_current_note_immediately()
+        return "break"
+
+    def shortcut_new_note(self, _event=None):
+        self.add_new_note()
+        return "break"
+
+    def shortcut_insert_image(self, _event=None):
+        if not self.editor_has_focus():
+            return None
+        self.insert_image()
+        return "break"
+
+    def shortcut_undo(self, _event=None):
+        if not self.editor_has_focus():
+            return None
+        self.run_editor_undo_redo("undo")
+        return "break"
+
+    def shortcut_redo(self, _event=None):
+        if not self.editor_has_focus():
+            return None
+        self.run_editor_undo_redo("redo")
+        return "break"
+
+    def run_editor_undo_redo(self, action):
+        self.ensure_editor_history_state()
+        source_stack = self.editor_undo_stack if action == "undo" else self.editor_redo_stack
+        target_stack = self.editor_redo_stack if action == "undo" else self.editor_undo_stack
+
+        if source_stack:
+            entry = source_stack.pop()
+            if entry.get("type") == "style":
+                self.apply_style_history_entry(entry, action)
+                target_stack.append(entry)
+                return
+
+            if entry.get("type") == "text":
+                if self.apply_text_history_entry(action):
+                    target_stack.append(entry)
+                return
+
+        if action == "undo":
+            self.apply_text_history_entry(action)
+
+    def apply_text_history_entry(self, action):
+        previous_suppress = getattr(self, "suppress_editor_history", False)
+        self.suppress_editor_history = True
+        try:
+            if action == "undo":
+                self.editor._textbox.edit_undo()
+            else:
+                self.editor._textbox.edit_redo()
+            self.after_idle(self.normalize_after_undo_redo)
+            return True
+        except tk.TclError:
+            return False
+        finally:
+            self.suppress_editor_history = previous_suppress
+
+    def apply_style_history_entry(self, entry, action):
+        snapshot_key = "before" if action == "undo" else "after"
+        state_key = "before_state" if action == "undo" else "after_state"
+        previous_suppress = getattr(self, "suppress_editor_history", False)
+        self.suppress_editor_history = True
+        try:
+            self.restore_style_snapshot(entry.get(snapshot_key, []))
+            self.restore_active_typing_state(entry.get(state_key, {}))
+            if entry.get(snapshot_key):
+                self.refresh_current_style_display()
+            self.trigger_auto_save()
+        finally:
+            self.suppress_editor_history = previous_suppress
+
+    def normalize_after_undo_redo(self):
+        self.normalize_missing_formatting_tags()
+        self.refresh_current_style_display()
+        self.trigger_auto_save()
+
+    def normalize_missing_formatting_tags(self):
+        text_widget = self.editor._textbox
+        try:
+            end = text_widget.index("end-1c")
+            if text_widget.compare("1.0", ">=", end):
+                return
+
+            current_start = None
+            current_end = None
+            char_count = text_widget.count("1.0", end, "chars")
+            total_chars = char_count[0] if char_count else 0
+            for i in range(total_chars):
+                index = text_widget.index(f"1.0 + {i} chars")
+                char = text_widget.get(index, f"{index} + 1c")
+                if char == "\n":
+                    if current_start is not None:
+                        self.apply_default_text_style_range(current_start, current_end)
+                        current_start = None
+                    continue
+
+                tags = text_widget.tag_names(index)
+                has_size_tag = any(tag.startswith("size_") or tag.startswith("bold_size_") for tag in tags)
+                has_color_tag = any(tag.startswith("color_") for tag in tags)
+                if has_size_tag and has_color_tag:
+                    if current_start is not None:
+                        self.apply_default_text_style_range(current_start, current_end)
+                        current_start = None
+                    continue
+
+                if current_start is None:
+                    current_start = index
+                current_end = text_widget.index(f"{index} + 1c")
+
+            if current_start is not None:
+                self.apply_default_text_style_range(current_start, current_end)
+        except tk.TclError:
+            return
+
+    def apply_default_text_style_range(self, start, end):
+        self.apply_text_style_range(
+            start,
+            end,
+            color="default",
+            size=DEFAULT_FONT_SIZE,
+            bold=False,
+            underline=False,
+        )
 
     def reset_new_block_to_body(self):
         body_style = BLOCK_STYLES[DEFAULT_BLOCK_STYLE_LABEL]
@@ -697,28 +1303,37 @@ class EditorMixin:
         if self.apply_text_style_to_selected_ranges(color=color_key):
             return
 
+        before_state = self.capture_active_typing_state()
         self.active_typing_color = color_key
         if color_key == "default" or self.color_is_locked():
             self.clear_temporary_color_line()
         else:
             self.remember_temporary_color_line()
         self.sync_editor_cursor_color()
+        after_state = self.capture_active_typing_state()
+        self.record_style_history([], [], before_state, after_state)
 
     def toggle_typing_bold(self):
+        before_state = self.capture_active_typing_state()
         self.active_typing_bold = not self.active_typing_bold
         self.update_temporary_style_line()
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()
-        self.apply_text_style_to_selected_ranges(bold=self.active_typing_bold)
+        if not self.apply_text_style_to_selected_ranges(before_state=before_state, bold=self.active_typing_bold):
+            after_state = self.capture_active_typing_state()
+            self.record_style_history([], [], before_state, after_state)
 
     def toggle_typing_underline(self):
+        before_state = self.capture_active_typing_state()
         self.active_typing_underline = not self.active_typing_underline
         self.update_temporary_style_line()
         self.update_block_style_label()
         self.update_style_buttons()
         self.sync_editor_input_style()
-        self.apply_text_style_to_selected_ranges(underline=self.active_typing_underline)
+        if not self.apply_text_style_to_selected_ranges(before_state=before_state, underline=self.active_typing_underline):
+            after_state = self.capture_active_typing_state()
+            self.record_style_history([], [], before_state, after_state)
 
     def update_style_buttons(self):
         active_color = ("#d8d8d8", "#3a3a3a")
@@ -954,6 +1569,8 @@ class EditorMixin:
                         end_nl = text_widget.index(tk.INSERT)
                         for tag in text_tags:
                             text_widget.tag_add(tag, start_nl, end_nl)
+
+        self.reset_editor_undo_history()
 
     # ==========================================
     # 6. リスト更新 ＆ ノート読込・保存

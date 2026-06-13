@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
@@ -40,6 +41,10 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.auto_save_timer = None         # 自動保存用タイマーID
         self.pending_format_start_index = None
         self.pending_format_after_id = None
+        self.editor_undo_stack = []
+        self.editor_redo_stack = []
+        self.suppress_editor_history = False
+        self.pending_native_text_edit_snapshot = None
         self.compact_layout_active = None
         self.init_update_state()
         self.note_sort_var = ctk.StringVar(value=DEFAULT_NOTE_SORT_LABEL)
@@ -263,7 +268,7 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
             toolbar,
             values=BLOCK_STYLE_LABELS,
             variable=self.block_style_var,
-            width=92,
+            width=118,
             font=app_font(size=12),
             dropdown_font=app_font(size=12),
             command=self.on_block_style_changed,
@@ -314,7 +319,7 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
 
         self.title_entry = ctk.CTkEntry(
             title_row, 
-            placeholder_text="無題のノート", 
+            placeholder_text="タイトルを入力",
             font=app_font(size=18, weight="bold"),
             border_width=1,
             fg_color=("#ffffff", "#2b2b2b"),
@@ -348,13 +353,17 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.editor._textbox.bind("<ButtonRelease-1>", self.on_editor_button_release, add="+")
         self.editor._textbox.bind("<BackSpace>", self.on_delete_key_pressed, add="+")
         self.editor._textbox.bind("<Delete>", self.on_delete_key_pressed, add="+")
+        self.editor._textbox.bind("<<Cut>>", self.track_native_text_edit, add="+")
+        self.editor._textbox.bind("<<Paste>>", self.track_native_text_edit, add="+")
         self.editor._textbox.bind("<Escape>", self.clear_multi_select_ranges, add="+")
         self.editor.bind("<Return>", self.on_return_pressed, add="+")
+        self.editor.bind("<Down>", self.on_down_pressed, add="+")
         self.editor._textbox.bind("<FocusIn>", lambda _event: self.sync_editor_input_style(), add="+")
         self.editor._textbox.bind("<ButtonRelease-1>", self.move_insert_out_of_image_marker, add="+")
         self.editor._textbox.bind("<KeyRelease>", self.move_insert_out_of_image_marker, add="+")
         self.editor._textbox.bind("<ButtonRelease-1>", self.reset_temporary_color_on_cursor_move, add="+")
         self.editor._textbox.bind("<KeyRelease>", self.reset_temporary_color_on_cursor_move, add="+")
+        self.bind_editor_shortcuts()
 
     def apply_app_fonts(self, widget):
         """フォント未指定のCustomTkinterウィジェットにもアプリ標準フォントを適用する"""
