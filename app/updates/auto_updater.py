@@ -87,17 +87,27 @@ def calculate_sha256(path):
 
 def launch_update_installer(downloaded_exe):
     current_exe = Path(sys.executable).resolve()
+    current_pid = os.getpid()
     script_path = Path(tempfile.gettempdir()) / f"tukushi_note_update_{os.getpid()}.ps1"
     script = r'''
 param(
     [string]$NewExe,
     [string]$CurrentExe,
-    [string]$LogFile
+    [string]$LogFile,
+    [int]$CurrentPid
 )
 
 $updated = $false
 $lastError = $null
-Start-Sleep -Milliseconds 800
+
+if ($CurrentPid -gt 0) {
+    try {
+        Wait-Process -Id $CurrentPid -Timeout 30 -ErrorAction SilentlyContinue
+    } catch {
+    }
+}
+
+Start-Sleep -Milliseconds 1200
 
 for ($i = 0; $i -lt 80; $i++) {
     try {
@@ -111,6 +121,9 @@ for ($i = 0; $i -lt 80; $i++) {
 }
 
 if ($updated) {
+    # PyInstaller onefile用の一時展開先を新しいexeに引き継がせない。
+    Get-ChildItem Env:_PYI* -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
+    Remove-Item Env:PYINSTALLER_RESET_ENVIRONMENT -ErrorAction SilentlyContinue
     Start-Process -FilePath $CurrentExe -WorkingDirectory (Split-Path -Parent $CurrentExe)
 } else {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -124,6 +137,12 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
     script_path.write_text(script, encoding="utf-8-sig")
 
     creation_flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+    env = os.environ.copy()
+    for key in list(env):
+        # 子プロセスに古い _MEI フォルダを参照させない。
+        if key.startswith("_PYI") or key == "PYINSTALLER_RESET_ENVIRONMENT":
+            env.pop(key, None)
+
     subprocess.Popen(
         [
             "powershell.exe",
@@ -135,8 +154,10 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
             str(downloaded_exe),
             str(current_exe),
             str(LOG_FILE),
+            str(current_pid),
         ],
         cwd=str(current_exe.parent),
         creationflags=creation_flags,
         close_fds=True,
+        env=env,
     )
