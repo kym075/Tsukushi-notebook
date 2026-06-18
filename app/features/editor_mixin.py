@@ -1,5 +1,6 @@
 import os
 import ctypes
+import unicodedata
 import tkinter as tk
 import customtkinter as ctk
 from PIL import ImageTk
@@ -483,6 +484,62 @@ class EditorMixin:
 
         return normalized_ranges
 
+    def has_multi_select_ranges(self):
+        try:
+            return bool(self.editor._textbox.tag_ranges("multi_select"))
+        except tk.TclError:
+            return False
+
+    def selected_plain_text_for_clipboard(self):
+        ranges = self.normalized_text_ranges(self.selected_text_ranges())
+        if not ranges:
+            return None
+
+        text_widget = self.editor._textbox
+        return "\n".join(text_widget.get(start, end) for start, end in ranges)
+
+    def copy_multi_select_to_clipboard(self):
+        selected_text = self.selected_plain_text_for_clipboard()
+        if selected_text is None:
+            return False
+
+        self.clipboard_clear()
+        self.clipboard_append(selected_text)
+        return True
+
+    def delete_selected_text_ranges(self, record_history=True, trigger_save=True):
+        ranges = self.normalized_text_ranges(self.selected_text_ranges())
+        if not ranges:
+            return None
+
+        text_widget = self.editor._textbox
+        first_start = ranges[0][0]
+        before_style_snapshot = self.capture_style_snapshot(ranges) if record_history else []
+        if record_history:
+            try:
+                text_widget.edit_separator()
+            except tk.TclError:
+                pass
+
+        for start, end in reversed(ranges):
+            text_widget.delete(start, end)
+
+        text_widget.tag_remove("sel", "1.0", "end")
+        self.clear_multi_select_ranges()
+        text_widget.mark_set("insert", first_start)
+
+        if record_history:
+            self.mark_undo_separator(record_text_history=False)
+            self.record_compound_text_history(
+                undo_steps=1,
+                redo_steps=1,
+                before_style_snapshot=before_style_snapshot,
+                after_style_snapshot=[],
+            )
+        if trigger_save:
+            self.trigger_auto_save()
+        return first_start
+
     def apply_text_style_to_selected_ranges(self, color=None, size=None, bold=None, underline=None, before_state=None):
         ranges = self.selected_text_ranges()
         if not ranges:
@@ -726,6 +783,16 @@ class EditorMixin:
         })
         return True
 
+    def record_compound_text_history(self, undo_steps, redo_steps, before_style_snapshot=None, after_style_snapshot=None):
+        self.record_editor_history({
+            "type": "compound_text",
+            "undo_steps": undo_steps,
+            "redo_steps": redo_steps,
+            "before_style": before_style_snapshot or [],
+            "after_style": after_style_snapshot or [],
+        })
+        return True
+
     def track_native_text_edit(self, _event=None):
         if getattr(self, "suppress_editor_history", False):
             return None
@@ -755,7 +822,7 @@ class EditorMixin:
         if before_text != after_text:
             self.mark_undo_separator()
 
-    def insert_text_with_active_style(self, text):
+    def insert_text_with_active_style(self, text, record_history=True, trigger_save=True):
         text_widget = self.editor._textbox
         start = text_widget.index("insert")
         text_widget.insert("insert", text)
@@ -771,8 +838,9 @@ class EditorMixin:
                 underline=self.active_typing_underline,
             )
 
-        self.mark_undo_separator()
-        self.trigger_auto_save()
+        self.mark_undo_separator(record_text_history=record_history)
+        if trigger_save:
+            self.trigger_auto_save()
         return start, end
 
     def line_bullet_prefix_before_insert(self):
@@ -799,6 +867,39 @@ class EditorMixin:
         spaces = after_bullet[:len(after_bullet) - len(after_bullet.lstrip(" \t\u3000"))]
         return f"{indent}  {spaces}"
 
+    def visual_indent_for_text(self, text):
+        width = 0
+        for char in text:
+            width += 2 if unicodedata.east_asian_width(char) in ("F", "W") else 1
+        return "\u3000" * (width // 2) + " " * (width % 2)
+
+    def line_marker_continuation_indent_before_insert(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert")
+        indent = line_text[:len(line_text) - len(line_text.lstrip(" \t\u3000"))]
+        rest = line_text[len(indent):]
+
+        marker_candidates = []
+        for marker in ("．", "："):
+            marker_index = rest.find(marker)
+            if marker_index >= 0:
+                marker_candidates.append((marker_index, marker))
+        if not marker_candidates:
+            return None
+
+        marker_index, marker = min(marker_candidates, key=lambda item: item[0])
+        marker_prefix = rest[:marker_index]
+        if not marker_prefix or len(marker_prefix) > 12:
+            return None
+        if len(marker_prefix) > 4 and not any(char.isdigit() for char in marker_prefix):
+            return None
+        if any(char in " \t\u3000" for char in marker_prefix):
+            return None
+
+        after_marker = rest[marker_index + len(marker):]
+        spaces = after_marker[:len(after_marker) - len(after_marker.lstrip(" \t\u3000"))]
+        return f"{indent}{self.visual_indent_for_text(rest[:marker_index + len(marker)])}{spaces}"
+
     def current_line_indent_before_insert(self):
         text_widget = self.editor._textbox
         line_text = text_widget.get("insert linestart", "insert lineend")
@@ -811,6 +912,8 @@ class EditorMixin:
 
     def insert_new_line_without_bullet(self):
         continuation_indent = self.line_bullet_continuation_indent_before_insert()
+        if continuation_indent is None:
+            continuation_indent = self.line_marker_continuation_indent_before_insert()
         if continuation_indent is None:
             self.insert_text_with_active_style(f"\n{self.current_line_indent_before_insert()}")
         else:
@@ -1156,6 +1259,10 @@ class EditorMixin:
         if getattr(event, "keysym", "") not in ("BackSpace", "Delete"):
             return None
 
+        if self.has_multi_select_ranges():
+            self.delete_selected_text_ranges()
+            return "break"
+
         marker_range = self.image_marker_range_near_delete_cursor(event.keysym)
         if not marker_range:
             self.track_native_text_edit()
@@ -1242,6 +1349,56 @@ class EditorMixin:
         self.insert_image()
         return "break"
 
+    def on_copy_event(self, _event=None):
+        if not self.has_multi_select_ranges():
+            return None
+        self.copy_multi_select_to_clipboard()
+        return "break"
+
+    def on_cut_event(self, _event=None):
+        if not self.has_multi_select_ranges():
+            self.track_native_text_edit()
+            return None
+        if self.copy_multi_select_to_clipboard():
+            self.delete_selected_text_ranges()
+        return "break"
+
+    def on_paste_event(self, _event=None):
+        if not self.has_multi_select_ranges():
+            self.track_native_text_edit()
+            return None
+
+        try:
+            clipboard_text = self.clipboard_get()
+        except tk.TclError:
+            return "break"
+
+        text_widget = self.editor._textbox
+        ranges = self.normalized_text_ranges(self.selected_text_ranges())
+        before_style_snapshot = self.capture_style_snapshot(ranges)
+        try:
+            text_widget.edit_separator()
+        except tk.TclError:
+            pass
+
+        insert_index = self.delete_selected_text_ranges(record_history=False, trigger_save=False)
+        if insert_index is not None:
+            text_widget.mark_set("insert", insert_index)
+            insert_start, insert_end = self.insert_text_with_active_style(
+                clipboard_text,
+                record_history=False,
+                trigger_save=False,
+            )
+            after_style_snapshot = self.capture_style_snapshot([(insert_start, insert_end)])
+            self.record_compound_text_history(
+                undo_steps=2,
+                redo_steps=2,
+                before_style_snapshot=before_style_snapshot,
+                after_style_snapshot=after_style_snapshot,
+            )
+            self.trigger_auto_save()
+        return "break"
+
     def shortcut_undo(self, _event=None):
         if not self.editor_has_focus():
             return None
@@ -1266,6 +1423,11 @@ class EditorMixin:
                 target_stack.append(entry)
                 return
 
+            if entry.get("type") == "compound_text":
+                if self.apply_compound_text_history_entry(entry, action):
+                    target_stack.append(entry)
+                return
+
             if entry.get("type") == "text":
                 if self.apply_text_history_entry(action):
                     target_stack.append(entry)
@@ -1285,6 +1447,27 @@ class EditorMixin:
             self.after_idle(self.normalize_after_undo_redo)
             return True
         except tk.TclError:
+            return False
+        finally:
+            self.suppress_editor_history = previous_suppress
+
+    def apply_compound_text_history_entry(self, entry, action):
+        steps_key = "undo_steps" if action == "undo" else "redo_steps"
+        style_key = "before_style" if action == "undo" else "after_style"
+        previous_suppress = getattr(self, "suppress_editor_history", False)
+        self.suppress_editor_history = True
+        try:
+            edit_command = self.editor._textbox.edit_undo if action == "undo" else self.editor._textbox.edit_redo
+            for _ in range(max(1, int(entry.get(steps_key, 1)))):
+                edit_command()
+
+            style_snapshot = entry.get(style_key, [])
+            if style_snapshot:
+                self.restore_style_snapshot(style_snapshot)
+
+            self.after_idle(self.normalize_after_undo_redo)
+            return True
+        except (tk.TclError, ValueError, TypeError):
             return False
         finally:
             self.suppress_editor_history = previous_suppress
