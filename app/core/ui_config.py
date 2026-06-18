@@ -4,7 +4,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 
-APP_VERSION = "1.1.7"
+APP_VERSION = "1.1.8"
 
 FONT_COLORS = {
     "default": {
@@ -15,27 +15,27 @@ FONT_COLORS = {
     "rose": {
         "name": "サクラ",
         "dark": "#ff8fa3",
-        "light": "#b32036",
+        "light": "#e11d48",
     },
     "ocean": {
         "name": "オーシャン",
         "dark": "#70a1ff",
-        "light": "#0b52a5",
+        "light": "#2563eb",
     },
     "sage": {
         "name": "セージ",
         "dark": "#2ed573",
-        "light": "#1b663b",
+        "light": "#16a34a",
     },
     "amber": {
         "name": "サニー",
         "dark": "#ffa502",
-        "light": "#b86e00",
+        "light": "#d97706",
     },
     "purple": {
         "name": "ラベンダー",
         "dark": "#d6a2e8",
-        "light": "#5c2a9d",
+        "light": "#9333ea",
     },
 }
 
