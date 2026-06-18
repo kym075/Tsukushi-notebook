@@ -357,6 +357,7 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.editor._textbox.bind("<<Paste>>", self.track_native_text_edit, add="+")
         self.editor._textbox.bind("<Escape>", self.clear_multi_select_ranges, add="+")
         self.editor.bind("<Return>", self.on_return_pressed, add="+")
+        self.editor.bind("<Shift-Return>", self.on_return_pressed, add="+")
         self.editor.bind("<Down>", self.on_down_pressed, add="+")
         self.editor._textbox.bind("<FocusIn>", lambda _event: self.sync_editor_input_style(), add="+")
         self.editor._textbox.bind("<ButtonRelease-1>", self.move_insert_out_of_image_marker, add="+")

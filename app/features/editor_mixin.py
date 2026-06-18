@@ -231,6 +231,9 @@ class EditorMixin:
     def is_control_pressed(self, event):
         return bool(getattr(event, "state", 0) & 0x0004)
 
+    def is_shift_pressed(self, event):
+        return bool(getattr(event, "state", 0) & 0x0001)
+
     def on_editor_button_press(self, event):
         if self.select_line_if_margin_clicked(event):
             return "break"
@@ -784,10 +787,37 @@ class EditorMixin:
         spaces = after_bullet[:len(after_bullet) - len(after_bullet.lstrip(" \t\u3000"))]
         return f"{indent}・{spaces or ' '}"
 
+    def line_bullet_continuation_indent_before_insert(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert")
+        indent = line_text[:len(line_text) - len(line_text.lstrip(" \t\u3000"))]
+        rest = line_text[len(indent):]
+        if not rest.startswith("・"):
+            return None
+
+        after_bullet = rest[1:]
+        spaces = after_bullet[:len(after_bullet) - len(after_bullet.lstrip(" \t\u3000"))]
+        return f"{indent}  {spaces}"
+
+    def current_line_indent_before_insert(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert lineend")
+        return line_text[:len(line_text) - len(line_text.lstrip(" \t\u3000"))]
+
     def current_line_has_only_bullet(self):
         text_widget = self.editor._textbox
         line_text = text_widget.get("insert linestart", "insert lineend")
         return line_text.strip(" \t\u3000") == "・"
+
+    def insert_new_line_without_bullet(self):
+        continuation_indent = self.line_bullet_continuation_indent_before_insert()
+        if continuation_indent is None:
+            self.insert_text_with_active_style(f"\n{self.current_line_indent_before_insert()}")
+        else:
+            self.insert_text_with_active_style(f"\n{continuation_indent}")
+
+        self.after_idle(self.reset_new_block_to_body)
+        return "break"
 
     def insert_new_line_like_return(self):
         text_widget = self.editor._textbox
@@ -895,6 +925,32 @@ class EditorMixin:
         except tk.TclError:
             return None
 
+    def handle_manual_bullet_autospace(self, event):
+        if getattr(event, "char", "") != "・":
+            return None
+
+        text_widget = self.editor._textbox
+        try:
+            if text_widget.tag_ranges("sel"):
+                insert_index = text_widget.index("sel.first")
+            else:
+                insert_index = text_widget.index("insert")
+
+            line_before = text_widget.get(f"{insert_index} linestart", insert_index)
+            if line_before.strip(" \t\u3000"):
+                return None
+
+            if text_widget.tag_ranges("sel"):
+                start = text_widget.index("sel.first")
+                end = text_widget.index("sel.last")
+                text_widget.delete(start, end)
+                text_widget.mark_set("insert", start)
+
+            self.insert_text_with_active_style("・ ")
+            return "break"
+        except tk.TclError:
+            return None
+
     def apply_text_style_range(self, start, end, color=None, size=None, bold=None, underline=None):
         text_widget = self.editor._textbox
         if text_widget.compare(start, "==", end):
@@ -949,6 +1005,10 @@ class EditorMixin:
         bracket_result = self.handle_bracket_autocomplete(event)
         if bracket_result:
             return bracket_result
+
+        bullet_result = self.handle_manual_bullet_autospace(event)
+        if bullet_result:
+            return bullet_result
 
         if getattr(event, "keysym", "") == "Return":
             return None
@@ -1112,7 +1172,9 @@ class EditorMixin:
         except tk.TclError:
             return None
 
-    def on_return_pressed(self, _event):
+    def on_return_pressed(self, event):
+        if self.is_shift_pressed(event):
+            return self.insert_new_line_without_bullet()
         return self.insert_new_line_like_return()
 
     def on_down_pressed(self, _event):
