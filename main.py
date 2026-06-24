@@ -365,6 +365,7 @@ class NotebookApp(UpdateMixin, EditorMixin, NotesMixin, SettingsMixin, ctk.CTk):
         self.editor._textbox.bind("<KeyRelease>", self.move_insert_out_of_image_marker, add="+")
         self.editor._textbox.bind("<ButtonRelease-1>", self.reset_temporary_color_on_cursor_move, add="+")
         self.editor._textbox.bind("<KeyRelease>", self.reset_temporary_color_on_cursor_move, add="+")
+        self.editor._textbox.bind("<KeyRelease>", self.ensure_insert_cursor_visible, add="+")
         self.bind_editor_shortcuts()
 
     def apply_app_fonts(self, widget):

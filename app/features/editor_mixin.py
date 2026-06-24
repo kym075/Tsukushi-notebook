@@ -839,9 +839,17 @@ class EditorMixin:
             )
 
         self.mark_undo_separator(record_text_history=record_history)
+        self.ensure_insert_cursor_visible()
         if trigger_save:
             self.trigger_auto_save()
         return start, end
+
+    def ensure_insert_cursor_visible(self, _event=None):
+        try:
+            self.editor._textbox.see("insert")
+        except tk.TclError:
+            pass
+        return None
 
     def line_bullet_prefix_before_insert(self):
         text_widget = self.editor._textbox
