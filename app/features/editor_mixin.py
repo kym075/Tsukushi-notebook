@@ -867,6 +867,44 @@ class EditorMixin:
         spaces = after_bullet[:len(after_bullet) - len(after_bullet.lstrip(" \t\u3000"))]
         return f"{indent}  {spaces}"
 
+    def parse_numbered_list_prefix(self, line_text):
+        indent = line_text[:len(line_text) - len(line_text.lstrip(" \t\u3000"))]
+        rest = line_text[len(indent):]
+        marker_candidates = [(rest.find(marker), marker) for marker in ("．", "：")]
+        marker_candidates = [(index, marker) for index, marker in marker_candidates if index > 0]
+        if not marker_candidates:
+            return None
+
+        marker_index, marker = min(marker_candidates, key=lambda item: item[0])
+
+        number_text = rest[:marker_index]
+        if not all(char.isdecimal() for char in number_text):
+            return None
+
+        number = 0
+        for char in number_text:
+            number = number * 10 + unicodedata.decimal(char)
+
+        uses_fullwidth_digits = all("０" <= char <= "９" for char in number_text)
+        return indent, number, uses_fullwidth_digits, marker, rest[marker_index + 1:]
+
+    def format_list_number(self, number, uses_fullwidth_digits):
+        number_text = str(number)
+        if uses_fullwidth_digits:
+            return number_text.translate(str.maketrans("0123456789", "０１２３４５６７８９"))
+        return number_text
+
+    def line_numbered_prefix_before_insert(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert")
+        parsed_prefix = self.parse_numbered_list_prefix(line_text)
+        if parsed_prefix is None:
+            return None
+
+        indent, number, uses_fullwidth_digits, marker, after_marker = parsed_prefix
+        spaces = after_marker[:len(after_marker) - len(after_marker.lstrip(" \t\u3000"))]
+        return f"{indent}{self.format_list_number(number + 1, uses_fullwidth_digits)}{marker}{spaces}"
+
     def visual_indent_for_text(self, text):
         width = 0
         for char in text:
@@ -910,6 +948,14 @@ class EditorMixin:
         line_text = text_widget.get("insert linestart", "insert lineend")
         return line_text.strip(" \t\u3000") == "・"
 
+    def current_line_has_only_numbered_prefix(self):
+        text_widget = self.editor._textbox
+        line_text = text_widget.get("insert linestart", "insert lineend")
+        parsed_prefix = self.parse_numbered_list_prefix(line_text)
+        if parsed_prefix is None:
+            return False
+        return not parsed_prefix[4].strip(" \t\u3000")
+
     def insert_new_line_without_bullet(self):
         continuation_indent = self.line_bullet_continuation_indent_before_insert()
         if continuation_indent is None:
@@ -925,8 +971,14 @@ class EditorMixin:
     def insert_new_line_like_return(self):
         text_widget = self.editor._textbox
         bullet_prefix = self.line_bullet_prefix_before_insert()
+        numbered_prefix = self.line_numbered_prefix_before_insert()
 
-        if bullet_prefix and self.current_line_has_only_bullet():
+        if numbered_prefix and self.current_line_has_only_numbered_prefix():
+            text_widget.delete("insert linestart", "insert lineend")
+            self.insert_text_with_active_style("\n")
+        elif numbered_prefix:
+            self.insert_text_with_active_style(f"\n{numbered_prefix}")
+        elif bullet_prefix and self.current_line_has_only_bullet():
             text_widget.delete("insert linestart", "insert lineend")
             self.insert_text_with_active_style("\n")
         elif bullet_prefix:
