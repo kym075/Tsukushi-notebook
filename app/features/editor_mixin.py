@@ -119,13 +119,42 @@ class EditorMixin:
         mode = ctk.get_appearance_mode().lower()
         return FONT_COLORS.get(color_key, FONT_COLORS["default"])[mode]
 
+    def _ring_border_color(self, swatch_hex):
+        r = int(swatch_hex[1:3], 16)
+        g = int(swatch_hex[3:5], 16)
+        b = int(swatch_hex[5:7], 16)
+        if b > r + 30 and b > g + 30:
+            return "#ffa502"
+        if r > b + 50 and g > b + 30:
+            return "#4A9EFF"
+        return "#4A9EFF"
+
     def update_color_swatch_buttons(self):
         if not hasattr(self, "color_buttons"):
             return
+        active_color_key = getattr(self, "active_typing_color", "default")
+        dark_mode = ctk.get_appearance_mode().lower() == "dark"
         for color_key, button in self.color_buttons.items():
             color = self.color_swatch_color(color_key)
-            border_color = "#777777" if color_key == "default" and ctk.get_appearance_mode().lower() == "dark" else "white"
-            button.configure(fg_color=color, hover_color=color, border_color=border_color)
+            is_active = (color_key == active_color_key)
+            if is_active:
+                button.configure(
+                    width=28, height=28, corner_radius=14,
+                    fg_color=color, hover_color=color,
+                    border_width=0,
+                )
+            else:
+                w = 20
+                bw = 1
+                if color_key == "default" and dark_mode:
+                    bc = "#777777"
+                else:
+                    bc = "white"
+                button.configure(
+                    width=w, height=w, corner_radius=w // 2,
+                    fg_color=color, hover_color=color,
+                    border_width=bw, border_color=bc,
+                )
 
     def font_tag_name(self, size, bold):
         return f"bold_size_{size}" if bold else f"size_{size}"
@@ -166,6 +195,7 @@ class EditorMixin:
             self.active_typing_underline = bool(underline)
         if color is not None:
             self.active_typing_color = color
+            self.update_color_swatch_buttons()
 
         if bold is not None or underline is not None:
             self.update_temporary_style_line()
@@ -323,6 +353,7 @@ class EditorMixin:
 
     def reset_typing_color_to_default(self):
         self.active_typing_color = "default"
+        self.update_color_swatch_buttons()
         self.clear_temporary_color_line()
         self.sync_editor_input_style()
 
@@ -1088,6 +1119,36 @@ class EditorMixin:
         except tk.TclError:
             return None
 
+    def handle_bracket_pair_deletion(self, event):
+        text_widget = self.editor._textbox
+        keysym = getattr(event, "keysym", "")
+        try:
+            if keysym == "BackSpace":
+                prev_idx = text_widget.index("insert - 1c")
+                if text_widget.compare(prev_idx, "<", "1.0"):
+                    return None
+                open_char = text_widget.get(prev_idx, "insert")
+                close_char = text_widget.get("insert", "insert + 1c")
+                expected_close = self.BRACKET_PAIRS.get(open_char)
+                if expected_close and expected_close == close_char:
+                    text_widget.delete(prev_idx, "insert + 1c")
+                    text_widget.mark_set("insert", prev_idx)
+                    self.mark_undo_separator()
+                    self.trigger_auto_save()
+                    return "break"
+            elif keysym == "Delete":
+                open_char = text_widget.get("insert", "insert + 1c")
+                close_char = text_widget.get("insert + 1c", "insert + 2c")
+                expected_close = self.BRACKET_PAIRS.get(open_char)
+                if expected_close and expected_close == close_char:
+                    text_widget.delete("insert", "insert + 2c")
+                    self.mark_undo_separator()
+                    self.trigger_auto_save()
+                    return "break"
+        except tk.TclError:
+            return None
+        return None
+
     def handle_manual_bullet_autospace(self, event):
         if getattr(event, "char", "") != "・":
             return None
@@ -1322,6 +1383,10 @@ class EditorMixin:
         if self.has_multi_select_ranges():
             self.delete_selected_text_ranges()
             return "break"
+
+        bracket_delete_result = self.handle_bracket_pair_deletion(event)
+        if bracket_delete_result:
+            return bracket_delete_result
 
         marker_range = self.image_marker_range_near_delete_cursor(event.keysym)
         if not marker_range:
@@ -1610,6 +1675,7 @@ class EditorMixin:
 
         before_state = self.capture_active_typing_state()
         self.active_typing_color = color_key
+        self.update_color_swatch_buttons()
         if color_key == "default" or self.color_is_locked():
             self.clear_temporary_color_line()
         else:

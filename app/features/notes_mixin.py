@@ -255,6 +255,7 @@ class NotesMixin:
         self.clear_temporary_style_line()
         self.update_block_style_label()
         self.update_style_buttons()
+        self.update_color_swatch_buttons()
 
         # タグの構成を再同期
         self.configure_formatting_tags()
